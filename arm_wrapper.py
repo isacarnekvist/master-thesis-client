@@ -6,13 +6,9 @@ from copy import deepcopy
 from queue import Queue, Empty
 
 import pyuarm
-import theano
-from theano import tensor
 import numpy as np
 from scipy.spatial.distance import euclidean
 from pyuarm.protocol import SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT, SERVO_HAND
-import matplotlib.pyplot as plt
-from scipy.stats import linregress
 
 SERVOS = [SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT, SERVO_HAND]
 
