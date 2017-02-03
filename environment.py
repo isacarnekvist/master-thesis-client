@@ -9,16 +9,22 @@ def random_in_range(a, b):
 
 class Environment():
      
-    def __init__(self):
+    def __init__(self, goal=None):
         self._x_min = -0.15
         self._x_max = 0.15
         self._y_min = 0.15
         self._y_max = 0.30
+        if goal:
+            self.goal_x, self.goal_y = goal
+            self.random_goal = False
+        else:
+            self.random_goal = True
         self.reset()
         
     def reset(self):
-        self.goal_x = random_in_range(self._x_min, self._x_max)
-        self.goal_y = random_in_range(self._y_min, self._y_max)
+        if self.random_goal:
+            self.goal_x = random_in_range(self._x_min, self._x_max)
+            self.goal_y = random_in_range(self._y_min, self._y_max)
         self.eef_x = random_in_range(self._x_min, self._x_max)
         self.eef_y = random_in_range(self._y_min, self._y_max)
         
@@ -33,7 +39,7 @@ class Environment():
         if d > 0.06:
             x = 0.06 * x / d
             y = 0.06 * y / d
-        if d > 0.02:
+        if d > 0.01:
             self.eef_x += x
             self.eef_y += y
         outside_reward = -1
@@ -45,7 +51,7 @@ class Environment():
             (self.eef_x - self.goal_x) ** 2 +
             (self.eef_y - self.goal_y) ** 2
         )
-        return target_distance1 - target_distance2
+        return 20.0 * (target_distance1 - target_distance2 - 0.02)
     
     def plot(self):
         import matplotlib.pyplot as plt
