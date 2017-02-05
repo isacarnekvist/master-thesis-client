@@ -36,22 +36,21 @@ class Environment():
             (self.eef_x - self.goal_x) ** 2 +
             (self.eef_y - self.goal_y) ** 2
         )
-        if d > 0.06:
-            x = 0.06 * x / d
-            y = 0.06 * y / d
-        if d > 0.01:
-            self.eef_x += x
-            self.eef_y += y
-        outside_reward = -1
+        if d > 0.05:
+            x = 0.05 * x / d
+            y = 0.05 * y / d
+        self.eef_x += x
+        self.eef_y += y
+        outside_reward = -2
         if not (self._x_min <= self.eef_x <= self._x_max):
             return outside_reward
         if not (self._y_min <= self.eef_y <= self._y_max):
             return outside_reward
-        target_distance2 = np.sqrt(
+        target_distance2 = (
             (self.eef_x - self.goal_x) ** 2 +
             (self.eef_y - self.goal_y) ** 2
         )
-        return 20.0 * (target_distance1 - target_distance2 - 0.02)
+        return np.exp(-1000 * target_distance2) - 1
     
     def plot(self):
         import matplotlib.pyplot as plt
