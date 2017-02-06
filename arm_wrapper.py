@@ -105,6 +105,14 @@ class Arm():
         self._arm.set_servo_angle(SERVO_LEFT, alpha)
         self._arm.set_servo_angle(SERVO_RIGHT, beta)
         self._arm.set_servo_angle(SERVO_BOTTOM, gamma)
+
+    def set_angles_relative(self, d_alpha, d_beta, d_gamma):
+        alpha, beta, gamma = self.servo_angles_to_command(
+            self._arm.get_servo_angle(SERVO_LEFT),
+            self._arm.get_servo_angle(SERVO_RIGHT),
+            self._arm.get_servo_angle(SERVO_BOTTOM)
+        )
+        self._set_angles(alpha + d_alpha, beta + d_beta, gamma + d_gamma)
         
     def _set_cartesian(self, x, y, z):
         a = self.cartesian_to_servo_angles(x, y, z)
