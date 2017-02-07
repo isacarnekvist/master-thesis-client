@@ -98,7 +98,7 @@ class Client():
     def control_loop(self):
         experience = []
         latest_param_update = datetime.now()
-        for i in range(10):
+        while True:
             logger.debug('Setting random start and goal poses')
             self.random_start_pose()
             self.goal_x, self.goal_y, _ = random_pose()
@@ -106,7 +106,7 @@ class Client():
                 x, y, z = self.arm.get_position()
                 u = self.next_move()
                 self.arm.set_angles_relative(*self.next_move())
-                sleep(0.03)
+                sleep(0.1)
                 xp, yp, zp = self.arm.get_position()
                 state_prime = create_state_vector(xp, yp, zp, self.goal_x, self.goal_y)
                 r = reward(xp, yp, zp, self.goal_x, self.goal_y)
@@ -123,7 +123,7 @@ class Client():
                 if is_lose_pose(xp, yp, zp):
                     logger.debug('outside workspace, reward -2')
                     break
-                sleep(0.03)
+                sleep(0.1)
             if datetime.now() > latest_param_update + timedelta(seconds=15):
                 self.update_weights()
                 latest_param_update = datetime.now()
