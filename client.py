@@ -82,9 +82,9 @@ class Client():
         eef_x, eef_y, eef_z = self.arm.get_position()
 
         # new controls plus noise
-        u_alpha, u_beta, u_gamma = 6.0 * self.nn.mu.predict(create_state_vector(
+        u_alpha, u_beta, u_gamma = 5.0 * self.nn.mu.predict(create_state_vector(
             eef_x, eef_y, eef_z, self.goal_x, self.goal_y
-        ))[0, :] + noise_factor * 2.5 * np.random.randn(3)
+        ))[0, :] + noise_factor * 1.0 * np.random.randn(3)
 
         if abs(u_alpha) > 6.0:
             u_alpha = 6.0 * np.sign(u_alpha)
