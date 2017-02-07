@@ -1,6 +1,10 @@
+import json
 import logging
+import requests
 from time import sleep
+from datetime import datetime, timedelta
 
+import logcolor
 import numpy as np
 from scipy.spatial.distance import euclidean
 
@@ -9,8 +13,9 @@ from arm_wrapper import Arm
 from pyuarm.protocol import SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT
 
 
-logger = logging.getLogger('Client')
-logger.setLevel(logging.INFO) # INFO
+logcolor.basic_config(level=logging.WARNING)
+logger = logging.getLogger('client')
+logger.setLevel(logging.DEBUG)
 
 
 def create_state_vector(eef_x, eef_y, eef_z, goal_x, goal_y):
@@ -55,7 +60,13 @@ class Client():
     def __init__(self):
         self.arm = Arm()
         self.nn = NNet(x_size=3 + 2, u_size=3)
+        self.session = requests.Session()
         sleep(2.0)
+
+    def update_weights(self):
+        logger.debug('Fetching new parameters')
+        params = json.loads(self.session.get('http://beorn:5000/get_params').text)
+        self.nn.q.set_weights([np.array(param) for param in params])
 
     def start(self):
         self.control_loop()
@@ -85,20 +96,45 @@ class Client():
         return u_alpha, u_beta, u_gamma
 
     def control_loop(self):
-        for i in range(4):
-            logger.warning('Setting random start and goal poses')
+        experience = []
+        latest_param_update = datetime.now()
+        for i in range(10):
+            logger.debug('Setting random start and goal poses')
             self.random_start_pose()
             self.goal_x, self.goal_y, _ = random_pose()
             for j in range(10):
+                x, y, z = self.arm.get_position()
+                u = self.next_move()
                 self.arm.set_angles_relative(*self.next_move())
                 sleep(0.03)
                 xp, yp, zp = self.arm.get_position()
                 state_prime = create_state_vector(xp, yp, zp, self.goal_x, self.goal_y)
+                r = reward(xp, yp, zp, self.goal_x, self.goal_y)
                 if is_lose_pose(xp, yp, zp):
-                    logger.warning('outside workspace, reward -2')
+                    r = -2
+                # TODO Add break if in 'winning' terminal state
+                logger.debug('reward: {}'.format(r))
+                experience.append({
+                    'x': [x, y, z, self.goal_x, self.goal_y],
+                    'xp': [xp, yp, zp, self.goal_x, self.goal_y],
+                    'u': list(u),
+                    'r': r,
+                })
+                if is_lose_pose(xp, yp, zp):
+                    logger.debug('outside workspace, reward -2')
                     break
-                logger.warning('reward: {}'.format(reward(xp, yp, zp, self.goal_x, self.goal_y)))
                 sleep(0.03)
+            if datetime.now() > latest_param_update + timedelta(seconds=15):
+                self.update_weights()
+                latest_param_update = datetime.now()
+            if len(experience) > 20:
+                self.send_experience(experience)
+                experience = []
+
+    def send_experience(self, experience):
+        headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+        r = self.session.put('http://beorn:5000/put_experience', data=json.dumps(experience), headers=headers)
+        logger.debug('Sent experience {}'.format(r))
 
     def stop(self):
         self.arm.stop()
