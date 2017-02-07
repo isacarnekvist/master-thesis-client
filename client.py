@@ -73,7 +73,7 @@ class Client():
 
     def random_start_pose(self):
         x, y, z = random_pose()
-        self.arm.move_to(x, y, z + 0.03, velocity=0.5)
+        self.arm.move_to(x, y, z + 0.015, velocity=0.5)
         sleep(2.0)
         self.arm.move_to(x, y, z)
         sleep(0.3)
