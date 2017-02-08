@@ -15,7 +15,7 @@ from pyuarm.protocol import SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT
 
 logcolor.basic_config(level=logging.WARNING)
 logger = logging.getLogger('client')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 def create_state_vector(eef_x, eef_y, eef_z, goal_x, goal_y):
