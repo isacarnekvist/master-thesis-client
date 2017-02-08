@@ -129,7 +129,7 @@ class Client():
                 state_prime = create_state_vector(xp, yp, zp, self.goal_x, self.goal_y)
                 r = reward(xp, yp, zp, self.goal_x, self.goal_y)
                 if is_lose_pose(xp, yp, zp):
-                    r = -2
+                    r = -4
                 # TODO Add break if in 'winning' terminal state
                 logger.debug('reward: {}'.format(r))
                 experience.append({
