@@ -139,7 +139,10 @@ class Client():
                     'r': r,
                 })
                 if is_lose_pose(xp, yp, zp):
-                    logger.debug('outside workspace, reward -2')
+                    logger.info('Reached outside workspace')
+                    break
+                if is_win_pose(xp, yp, zp, self.goal_x, self.goal_y):
+                    logger.info('Reached target pose!')
                     break
             if datetime.now() > latest_param_update + timedelta(seconds=15):
                 self.update_weights()
