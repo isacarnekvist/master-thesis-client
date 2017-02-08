@@ -110,7 +110,7 @@ class Client():
         experience = []
         self.update_weights()
         latest_param_update = datetime.now()
-        while True:
+        for _ in range(64):
             logger.debug('Setting random start and goal poses')
             self.random_start_pose()
             self.goal_x, self.goal_y, _ = random_pose()
@@ -122,8 +122,8 @@ class Client():
                     self.arm.set_angles_relative(*self.next_move())
                 else:
                     self.arm.disconnect()
-                    self.arm = Arm()
-                    break
+                    self.arm.stop()
+                    exit(-1)
                 sleep(0.1)
                 xp, yp, zp = self.arm.get_position()
                 state_prime = create_state_vector(xp, yp, zp, self.goal_x, self.goal_y)
