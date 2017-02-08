@@ -95,7 +95,7 @@ class Client():
         # new controls plus noise
         u_alpha, u_beta, u_gamma = self.max_angle_change * self.nn.mu.predict(create_state_vector(
             eef_x, eef_y, eef_z, self.goal_x, self.goal_y
-        ))[0, :] + noise_factor * 1.0 * np.random.randn(3)
+        ))[0, :] + noise_factor * 0.5 * np.random.randn(3)
 
         if abs(u_alpha) > self.max_angle_change:
             u_alpha = self.max_angle_change * np.sign(u_alpha)
@@ -112,8 +112,9 @@ class Client():
         latest_param_update = datetime.now()
         while True:
             logger.debug('Setting random start and goal poses')
-            self.random_start_pose()
             self.goal_x, self.goal_y, _ = random_pose()
+            logger.info('New goal at x: {}, y: {}'.format(self.goal_x, self.goal_y))
+            self.random_start_pose()
             while True:
                 x, y, z = self.arm.get_position()
                 u = self.next_move()
