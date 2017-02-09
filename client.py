@@ -110,7 +110,7 @@ class Client():
 
         return u_dx, u_dy
 
-    def do_one_trial(self, noise_factor=1.0, max_movements=100):
+    def do_one_trial(self, noise_factor=1.0, max_movements=32):
         experience = []
         self.update_weights()
         logger.debug('Setting random start and goal poses')
@@ -122,7 +122,7 @@ class Client():
             dx, dy = self.next_move(noise_factor=noise_factor)
             logger.debug('Sending relative angle commands: {}'.format([dx, dy]))
             if self.arm._arm.is_connected():
-                self.arm.move_to(x + dx, y + dy, z)
+                self.arm.move_to(x + dx, y + dy, 0.03)
             else:
                 self.arm.disconnect()
                 self.arm.stop()
