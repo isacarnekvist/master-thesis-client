@@ -29,7 +29,7 @@ class LidarWrapper:
                     # lidar is upside down, so change it here
                     angle = int(angle)
                     distance /= 1000.0
-                    if 0.0 < distance < 0.4 and (angle < 40 or 360 - 40 < angle):
+                    if 0.0 < distance < 0.4 and (angle < 50 or 360 - 40 < angle):
                         if angle > 90:
                             angle -= 360
                         self._scans[angle] = distance

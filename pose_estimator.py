@@ -38,7 +38,7 @@ def cube_pose():
         p = np.array([i, j])
         gamma = np.arccos(np.dot(p - d, v) / np.linalg.norm(p - d))
         s = np.sin(np.arccos(np.dot((p - d), v) / np.linalg.norm(p - d))) * np.linalg.norm(p - d)
-        if s < 2:
+        if s < 2.5:
             segment.append((x, y))
 
     v1 = np.array(segment[0])
