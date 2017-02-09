@@ -12,7 +12,7 @@ if __name__ == '__main__':
     sleep(5.0)
 
     for x in np.linspace(-0.09, 0.09, 4):
-        for y in np.linspace(0.12, 0.25, 4):
+        for y in np.linspace(0.15, 0.25, 4):
             arm.move_to(x, y, 0.06, velocity=0.5)
             sleep(3.0)
             arm.move_to(x, y, 0.04)

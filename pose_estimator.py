@@ -18,6 +18,7 @@ def cube_pose():
         for angle, dist in sorted(lw.scans.items(), key=lambda x: x[0])
     ]
     if not points:
+        print('no points from lidar')
         return
     h, w = 150, 200
     img = np.zeros((h, w), dtype=np.uint64)
@@ -40,6 +41,10 @@ def cube_pose():
         s = np.sin(np.arccos(np.dot((p - d), v) / np.linalg.norm(p - d))) * np.linalg.norm(p - d)
         if s < 2.5:
             segment.append((x, y))
+
+    if len(segment) == 0:
+        print('no segments found')
+        return
 
     v1 = np.array(segment[0])
     v2 = np.array(segment[-1])
