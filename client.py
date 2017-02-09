@@ -80,8 +80,17 @@ class Client():
         self.nn.q.set_weights([np.array(param) for param in params])
 
     def start(self):
-        for _ in range(64):
-            self.do_one_trial()
+        for i in range(64):
+            if i % 32:
+                self.do_one_trial()
+            else:
+                trial = self.do_one_trial(noise_factor=0.0)
+                try:
+                    headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+                    r = self.session.put('http://beorn:5000/put_test_trial', data=json.dumps(trial), headers=headers)
+                    logger.debug('Sent test trial {}'.format(r))
+                except requests.exceptions.ConnectionError:
+                    logger.error('Server not online? Could not send test trial.')
 
     def random_start_pose(self):
         x, y, z = random_pose()
