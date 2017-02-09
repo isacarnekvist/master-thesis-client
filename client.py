@@ -13,7 +13,7 @@ from arm_wrapper import Arm
 from pyuarm.protocol import SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT
 
 
-logcolor.basic_config(level=logging.WARNING)
+logcolor.basic_config(level=logging.ERROR)
 logger = logging.getLogger('client')
 logger.setLevel(logging.INFO)
 
@@ -67,7 +67,7 @@ class Client():
         self.arm = Arm()
         self.nn = NNet(x_size=3 + 2, u_size=3)
         self.session = requests.Session()
-        self.max_angle_change = 3.8
+        self.max_angle_move = 3.5
         sleep(2.0)
 
     def update_weights(self):
@@ -80,7 +80,8 @@ class Client():
         self.nn.q.set_weights([np.array(param) for param in params])
 
     def start(self):
-        self.control_loop()
+        for _ in range(64):
+            self.do_one_trial()
 
     def random_start_pose(self):
         x, y, z = random_pose()
@@ -93,64 +94,57 @@ class Client():
         eef_x, eef_y, eef_z = self.arm.get_position()
 
         # new controls plus noise
-        u_alpha, u_beta, u_gamma = self.max_angle_change * self.nn.mu.predict(create_state_vector(
+        u_alpha, u_beta, u_gamma = self.max_angle_move * self.nn.mu.predict(create_state_vector(
             eef_x, eef_y, eef_z, self.goal_x, self.goal_y
-        ))[0, :] + noise_factor * 1.8 * np.random.randn(3)
+        ))[0, :] + noise_factor * 2.0 * np.random.randn(3)
 
-        if abs(u_alpha) > self.max_angle_change:
-            u_alpha = self.max_angle_change * np.sign(u_alpha)
-        if abs(u_beta) > self.max_angle_change:
-            u_beta = self.max_angle_change * np.sign(u_beta)
-        if abs(u_gamma) > self.max_angle_change:
-            u_gamma = self.max_angle_change * np.sign(u_gamma)
+        if abs(u_alpha) > self.max_angle_move:
+            u_alpha = self.max_angle_move * np.sign(u_alpha)
+        if abs(u_beta) > self.max_angle_move:
+            u_beta = self.max_angle_move * np.sign(u_beta)
+        if abs(u_gamma) > self.max_angle_move:
+            u_gamma = self.max_angle_move * np.sign(u_gamma)
 
         return u_alpha, u_beta, u_gamma
 
-    def control_loop(self):
+    def do_one_trial(self, noise_factor=1.0, max_movements=100):
         experience = []
         self.update_weights()
-        latest_param_update = datetime.now()
-        for _ in range(64):
-            logger.debug('Setting random start and goal poses')
-            self.goal_x, self.goal_y, _ = random_pose()
-            logger.info('New goal at x: {}, y: {}'.format(self.goal_x, self.goal_y))
-            self.random_start_pose()
-            while True:
-                x, y, z = self.arm.get_position()
-                u = self.next_move()
-                logger.debug('Sending angles: {}'.format(u))
-                if self.arm._arm.is_connected():
-                    self.arm.set_angles_relative(*self.next_move())
-                else:
-                    self.arm.disconnect()
-                    self.arm.stop()
-                    exit(-1)
-                sleep(0.1)
-                xp, yp, zp = self.arm.get_position()
-                state_prime = create_state_vector(xp, yp, zp, self.goal_x, self.goal_y)
-                r = reward(xp, yp, zp, self.goal_x, self.goal_y)
-                if is_lose_pose(xp, yp, zp):
-                    r = -4
-                # TODO Add break if in 'winning' terminal state
-                logger.debug('reward: {}'.format(r))
-                experience.append({
-                    'x': [x, y, z, self.goal_x, self.goal_y],
-                    'xp': [xp, yp, zp, self.goal_x, self.goal_y],
-                    'u': list(u),
-                    'r': r,
-                })
-                if is_lose_pose(xp, yp, zp):
-                    logger.info('Reached outside workspace')
-                    break
-                if is_win_pose(xp, yp, zp, self.goal_x, self.goal_y):
-                    logger.info('Reached target pose!')
-                    break
-            if datetime.now() > latest_param_update + timedelta(seconds=15):
-                self.update_weights()
-                latest_param_update = datetime.now()
-            if len(experience) > 20:
-                self.send_experience(experience)
-                experience = []
+        logger.debug('Setting random start and goal poses')
+        self.goal_x, self.goal_y, _ = random_pose()
+        logger.info('New goal at x: {}, y: {}'.format(self.goal_x, self.goal_y))
+        self.random_start_pose()
+        for i in range(max_movements):
+            x, y, z = self.arm.get_position()
+            u = self.next_move(noise_factor=noise_factor)
+            logger.debug('Sending relative angle commands: {}'.format(u))
+            if self.arm._arm.is_connected():
+                self.arm.set_angles_relative(*u)
+            else:
+                self.arm.disconnect()
+                self.arm.stop()
+                exit(-1)
+            sleep(0.1)
+            xp, yp, zp = self.arm.get_position()
+            state_prime = create_state_vector(xp, yp, zp, self.goal_x, self.goal_y)
+            r = reward(xp, yp, zp, self.goal_x, self.goal_y)
+            if is_lose_pose(xp, yp, zp):
+                r = -4
+            logger.debug('reward: {}'.format(r))
+            experience.append({
+                'x': [x, y, z, self.goal_x, self.goal_y],
+                'xp': [xp, yp, zp, self.goal_x, self.goal_y],
+                'u': list(u),
+                'r': r,
+            })
+            if is_lose_pose(xp, yp, zp):
+                logger.info('Reached outside workspace')
+                break
+            if is_win_pose(xp, yp, zp, self.goal_x, self.goal_y):
+                logger.info('Reached target pose!')
+                break
+        self.send_experience(experience)
+        return experience
 
     def send_experience(self, experience):
         headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
