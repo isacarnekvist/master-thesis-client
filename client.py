@@ -97,7 +97,7 @@ class Client():
         self.arm.move_to(x, y, z + 0.03, velocity=0.5)
         sleep(4.0)
         self.arm.move_to(x, y, z)
-        sleep(4.0)
+        sleep(1.0)
 
     def next_move(self, noise_factor=1.0):
         eef_x, eef_y, eef_z = self.arm.get_position()
