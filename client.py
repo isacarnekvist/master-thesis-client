@@ -81,6 +81,8 @@ class Client():
                 self.do_one_trial()
             else:
                 trial = self.do_one_trial(noise_factor=0.0)
+                if trial is None:
+                    continue
                 try:
                     headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
                     r = self.session.put('http://beorn:5000/put_test_trial', data=json.dumps(trial), headers=headers)
@@ -132,6 +134,9 @@ class Client():
             state_prime = create_state_vector(xp, yp, self.goal_x, self.goal_y)
             r = reward(xp, yp, self.goal_x, self.goal_y)
             if is_lose_pose(xp, yp):
+                if abs(xp) > 0.2 or yp < 0.10:
+                    logger.debug('Ignoring strange observation}')
+                    return
                 r = -4
             logger.debug('reward: {}'.format(r))
             experience.append({
