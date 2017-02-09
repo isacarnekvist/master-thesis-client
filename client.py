@@ -76,7 +76,7 @@ class Client():
         self.nn.q.set_weights([np.array(param) for param in params])
 
     def start(self):
-        for i in range(64):
+        for i in range(16):
             if i % 4:
                 self.do_one_trial()
             else:
