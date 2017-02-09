@@ -9,7 +9,16 @@ from skimage.transform import hough_line, hough_line_peaks
 from rplidar_wrapper import LidarWrapper
 
 
-def cube_pose(points):
+lw = LidarWrapper()
+
+
+def cube_pose():
+    points = [
+        (dist * np.cos(np.deg2rad(angle)), dist * np.sin(np.deg2rad(angle)))
+        for angle, dist in sorted(lw.scans.items(), key=lambda x: x[0])
+    ]
+    if not points:
+        return
     h, w = 150, 200
     img = np.zeros((h, w), dtype=np.uint64)
     for x, y in points:
@@ -35,18 +44,3 @@ def cube_pose(points):
     v1 = np.array(segment[0])
     v2 = np.array(segment[-1])
     return v1 + (v2 - v1) / 2 + 0.02 * np.array([np.cos(theta), np.sin(theta)]), theta
-
-
-lw = LidarWrapper()
-try:
-    while True:
-        sleep(0.2)
-        points = [
-            (dist * np.cos(np.deg2rad(angle)), dist * np.sin(np.deg2rad(angle)))
-            for angle, dist in sorted(lw.scans.items(), key=lambda x: x[0])
-        ]
-        if points:
-            pprint(cube_pose(points))
-except KeyboardInterrupt:
-    lw.stop()
-    exit(0)
