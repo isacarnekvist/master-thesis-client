@@ -95,7 +95,7 @@ class Client():
         self.arm.move_to(x, y, z + 0.03, velocity=0.5)
         sleep(4.0)
         self.arm.move_to(x, y, z)
-        sleep(1.0)
+        sleep(1.5)
 
     def next_move(self, noise_factor=1.0):
         eef_x, eef_y, _ = self.arm.get_position()
@@ -129,7 +129,7 @@ class Client():
                 self.arm.disconnect()
                 self.arm.stop()
                 exit(-1)
-            sleep(0.1)
+            sleep(0.2)
             xp, yp, _ = self.arm.get_position()
             state_prime = create_state_vector(xp, yp, self.goal_x, self.goal_y)
             r = reward(xp, yp, self.goal_x, self.goal_y)
