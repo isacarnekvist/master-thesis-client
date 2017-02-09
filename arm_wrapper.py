@@ -119,7 +119,7 @@ class Arm():
         b = self.servo_angles_to_command(*a)
         self._set_angles(*b)
         
-    def set_pump(on):
+    def set_pump(self, on):
         self._arm.set_pump(on)
         
     def move_to(self, x, y, z, duration=None, velocity=None):
