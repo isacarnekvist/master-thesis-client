@@ -18,24 +18,22 @@ logger = logging.getLogger('client')
 logger.setLevel(logging.INFO)
 
 
-def create_state_vector(eef_x, eef_y, eef_z, goal_x, goal_y):
-    return np.array([[eef_x, eef_y, eef_z, goal_x, goal_y]])
+def create_state_vector(eef_x, eef_y, goal_x, goal_y):
+    return np.array([[eef_x, eef_y, goal_x, goal_y]])
 
 
 def random_in_range(a, b):
     return a + (b - a) * np.random.rand()
 
 
-def is_lose_pose(x, y, z):
+def is_lose_pose(x, y):
     if not (-0.12 <= x <= 0.12):
         return True
     if not (0.15 <= y <= 0.27):
         return True
-    if not (0.025 <= z <= 0.038):
-        return True
     return False
 
-def is_win_pose(x, y, z, gx, gy):
+def is_win_pose(x, y, gx, gy):
     if euclidean([x, y], [gx, gy]) < 0.01:
         return True
     else:
@@ -46,28 +44,26 @@ def random_pose():
     return (
         random_in_range(-0.12, 0.12),
         random_in_range(0.17, 0.25),
-        random_in_range(0.029, 0.034)
+        0.030
     )
 
 
-def reward(x, y, z, goal_x, goal_y):
+def reward(x, y, goal_x, goal_y):
     eef = np.array([x, y])
     goal = np.array([goal_x, goal_y])
 
-    height_reward = -5e4 * (z - 0.0315) ** 2
-    np.sum((eef - goal) ** 2)
     d = euclidean(eef, goal)
     d_reward = np.exp(-1000 * d ** 2) - 1
-    return height_reward + d_reward
+    return d_reward
 
 
 class Client():
 
     def __init__(self):
         self.arm = Arm()
-        self.nn = NNet(x_size=3 + 2, u_size=3)
+        self.nn = NNet(x_size=2 + 2, u_size=2)
         self.session = requests.Session()
-        self.max_angle_move = 3.5
+        self.max_euclid_move = 0.015
         sleep(2.0)
 
     def update_weights(self):
@@ -100,21 +96,19 @@ class Client():
         sleep(1.0)
 
     def next_move(self, noise_factor=1.0):
-        eef_x, eef_y, eef_z = self.arm.get_position()
+        eef_x, eef_y, _ = self.arm.get_position()
 
         # new controls plus noise
-        u_alpha, u_beta, u_gamma = self.max_angle_move * self.nn.mu.predict(create_state_vector(
-            eef_x, eef_y, eef_z, self.goal_x, self.goal_y
-        ))[0, :] + noise_factor * 2.0 * np.random.randn(3)
+        u_dx, u_dy = self.max_euclid_move * self.nn.mu.predict(create_state_vector(
+            eef_x, eef_y, self.goal_x, self.goal_y
+        ))[0, :] + noise_factor * 0.01 * np.random.randn(2)
 
-        if abs(u_alpha) > self.max_angle_move:
-            u_alpha = self.max_angle_move * np.sign(u_alpha)
-        if abs(u_beta) > self.max_angle_move:
-            u_beta = self.max_angle_move * np.sign(u_beta)
-        if abs(u_gamma) > self.max_angle_move:
-            u_gamma = self.max_angle_move * np.sign(u_gamma)
+        euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
+        if euclid > self.max_euclid_move:
+            u_dx = u_dx * self.max_euclid_move / euclid
+            u_dy = u_dy * self.max_euclid_move / euclid
 
-        return u_alpha, u_beta, u_gamma
+        return u_dx, u_dy
 
     def do_one_trial(self, noise_factor=1.0, max_movements=100):
         experience = []
@@ -125,31 +119,31 @@ class Client():
         self.random_start_pose()
         for i in range(max_movements):
             x, y, z = self.arm.get_position()
-            u = self.next_move(noise_factor=noise_factor)
-            logger.debug('Sending relative angle commands: {}'.format(u))
+            dx, dy = self.next_move(noise_factor=noise_factor)
+            logger.debug('Sending relative angle commands: {}'.format([dx, dy]))
             if self.arm._arm.is_connected():
-                self.arm.set_angles_relative(*u)
+                self.arm.move_to(x + dx, y + dy, z)
             else:
                 self.arm.disconnect()
                 self.arm.stop()
                 exit(-1)
             sleep(0.1)
-            xp, yp, zp = self.arm.get_position()
-            state_prime = create_state_vector(xp, yp, zp, self.goal_x, self.goal_y)
-            r = reward(xp, yp, zp, self.goal_x, self.goal_y)
-            if is_lose_pose(xp, yp, zp):
+            xp, yp, _ = self.arm.get_position()
+            state_prime = create_state_vector(xp, yp, self.goal_x, self.goal_y)
+            r = reward(xp, yp, self.goal_x, self.goal_y)
+            if is_lose_pose(xp, yp):
                 r = -4
             logger.debug('reward: {}'.format(r))
             experience.append({
-                'x': [x, y, z, self.goal_x, self.goal_y],
-                'xp': [xp, yp, zp, self.goal_x, self.goal_y],
-                'u': list(u),
+                'x': [x, y, self.goal_x, self.goal_y],
+                'xp': [xp, yp, self.goal_x, self.goal_y],
+                'u': [dx, dy],
                 'r': r,
             })
-            if is_lose_pose(xp, yp, zp):
+            if is_lose_pose(xp, yp):
                 logger.info('Reached outside workspace')
                 break
-            if is_win_pose(xp, yp, zp, self.goal_x, self.goal_y):
+            if is_win_pose(xp, yp, self.goal_x, self.goal_y):
                 logger.info('Reached target pose!')
                 break
         self.send_experience(experience)
