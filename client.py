@@ -63,7 +63,7 @@ class Client():
         self.arm = Arm()
         self.nn = NNet(x_size=2 + 2, u_size=2)
         self.session = requests.Session()
-        self.max_euclid_move = 0.015
+        self.max_euclid_move = 0.010
         sleep(2.0)
 
     def update_weights(self):
