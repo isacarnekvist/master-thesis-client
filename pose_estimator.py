@@ -1,3 +1,4 @@
+import pickle
 from time import sleep
 from pprint import pprint
 
@@ -9,8 +10,20 @@ from skimage.transform import hough_line, hough_line_peaks
 from rplidar_wrapper import LidarWrapper
 
 
+A, b, Ar = None, None, None
+try:
+    with open('lidar_transform.pkl', 'rb') as f:
+        A, b, Ar = pickle.load(f)
+except:
+    print('No transform found, using lidar frame')
+        
 lw = LidarWrapper()
 
+def first_quadrant(theta):
+    theta -= np.pi
+    while theta < 0.0:
+        theta += np.pi / 2
+    return theta
 
 def cube_pose():
     points = [
@@ -48,4 +61,16 @@ def cube_pose():
 
     v1 = np.array(segment[0])
     v2 = np.array(segment[-1])
-    return v1 + (v2 - v1) / 2 + 0.02 * np.array([np.cos(theta), np.sin(theta)]), theta
+    (x, y), theta = v1 + (v2 - v1) / 2 + 0.02 * np.array([np.cos(theta), np.sin(theta)]), theta
+    if A is not None:
+        ax, ay = (np.dot(np.array([[x, y]]), A) + np.array(b))[0, :]
+        rx, ry = np.dot(np.array([[np.cos(theta), np.sin(theta)]]), Ar)[0, :]
+        return ax, ay, first_quadrant(np.arctan2(ry, rx))
+    else:
+        return x, y, theta
+
+
+if __name__ == '__main__':
+    while True:
+        sleep(1.0)
+        print(cube_pose())
