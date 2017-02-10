@@ -109,7 +109,7 @@ class Client():
         # new controls plus noise
         u_dx, u_dy = self.max_axis_move * self.nn.mu.predict(create_state_vector(
             eef_x, eef_y, self.goal_x, self.goal_y
-        ))[0, :] + noise_factor * 0.01 * np.random.randn(2)
+        ))[0, :] + noise_factor * 0.02 * np.random.randn(2)
 
         euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
         if abs(u_dx) > self.max_axis_move:
