@@ -18,6 +18,12 @@ logger = logging.getLogger('client')
 logger.setLevel(logging.INFO)
 
 
+def remove_command_threshold(dx, dy):
+    dx += np.sign(dx) * 0.0058
+    dy += np.sign(dy) * 0.0058
+    return dx, dy
+
+
 def create_state_vector(eef_x, eef_y, goal_x, goal_y):
     return np.array([[eef_x, eef_y, goal_x, goal_y]])
 
@@ -63,7 +69,7 @@ class Client():
         self.arm = Arm()
         self.nn = NNet(x_size=2 + 2, u_size=2)
         self.session = requests.Session()
-        self.max_euclid_move = 0.010
+        self.max_axis_move = 0.010
         sleep(2.0)
 
     def update_weights(self):
@@ -101,14 +107,15 @@ class Client():
         eef_x, eef_y, _ = self.arm.get_position()
 
         # new controls plus noise
-        u_dx, u_dy = self.max_euclid_move * self.nn.mu.predict(create_state_vector(
+        u_dx, u_dy = self.max_axis_move * self.nn.mu.predict(create_state_vector(
             eef_x, eef_y, self.goal_x, self.goal_y
         ))[0, :] + noise_factor * 0.01 * np.random.randn(2)
 
         euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
-        if euclid > self.max_euclid_move:
-            u_dx = u_dx * self.max_euclid_move / euclid
-            u_dy = u_dy * self.max_euclid_move / euclid
+        if abs(u_dx) > self.max_axis_move:
+            u_dx = self.max_axis_move * np.sign(u_dx)
+        if abs(u_dy) > self.max_axis_move:
+            u_dy = self.max_axis_move * np.sign(u_dy)
 
         return u_dx, u_dy
 
@@ -122,9 +129,10 @@ class Client():
         for i in range(max_movements):
             x, y, z = self.arm.get_position()
             dx, dy = self.next_move(noise_factor=noise_factor)
+            dx_fixed, dy_fixed = remove_command_threshold(dx, dy)
             logger.debug('Sending relative angle commands: {}'.format([dx, dy]))
             if self.arm._arm.is_connected():
-                self.arm.move_to(x + dx, y + dy, 0.03)
+                self.arm.move_to(x + dx_fixed, y + dy_fixed, 0.03)
             else:
                 self.arm.disconnect()
                 self.arm.stop()
