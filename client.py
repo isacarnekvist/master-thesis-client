@@ -18,12 +18,13 @@ logger = logging.getLogger('client')
 logger.setLevel(logging.INFO)
 
 
-def remove_command_threshold(dx, dy):
+def remove_command_threshold(dx, dy, max_axis_move):
     #dx += 0.0058 * np.sign(dx)
     #dy += 0.0058 * np.sign(dy)
     theta = np.arctan2(dy, dx)
-    dx += 0.0055 * np.cos(theta)
-    dy += 0.0055 * np.sin(theta)
+    k = np.linalg.norm([dx, dy]) / max_axis_move
+    dx += (1 - k) * 0.01 * np.cos(theta) + k * 0.0065 * np.cos(theta)
+    dy += (1 - k) * 0.01 * np.sin(theta) + k * 0.0065 * np.cos(theta)
     return dx, dy
 
 
@@ -130,7 +131,7 @@ class Client():
         for i in range(max_movements):
             x, y, _ = self.arm.get_position()
             dx, dy = self.next_move(x, y, noise_factor=noise_factor)
-            dx_fixed, dy_fixed = remove_command_threshold(dx, dy)
+            dx_fixed, dy_fixed = remove_command_threshold(dx, dy, self.max_axis_move)
             if self.arm._arm.is_connected():
                 self.arm.move_to(x + dx_fixed, y + dy_fixed, 0.03)
             else:
