@@ -86,7 +86,8 @@ class Client():
 
     def start(self):
         for i in range(16):
-            if i % 4:
+            #if i % 4:
+            if True:
                 self.do_one_trial(noise_factor=1.0)
             else:
                 trial = self.do_one_trial(noise_factor=1.0)
