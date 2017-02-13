@@ -23,8 +23,8 @@ def remove_command_threshold(dx, dy, max_axis_move):
     #dy += 0.0058 * np.sign(dy)
     theta = np.arctan2(dy, dx)
     k = np.linalg.norm([dx, dy]) / max_axis_move
-    dx += (1 - k) * 0.01 * np.cos(theta) + k * 0.0065 * np.cos(theta)
-    dy += (1 - k) * 0.01 * np.sin(theta) + k * 0.0065 * np.cos(theta)
+    dx += (1 - k) * 0.012 * np.cos(theta) + k * 0.0065 * np.cos(theta)
+    dy += (1 - k) * 0.012 * np.sin(theta) + k * 0.0065 * np.cos(theta)
     return dx, dy
 
 
@@ -111,7 +111,7 @@ class Client():
         # new controls plus noise
         u_dx, u_dy = self.max_axis_move * self.nn.mu.predict(create_state_vector(
             eef_x, eef_y, self.goal_x, self.goal_y
-        ))[0, :] + noise_factor * 0.006 * np.random.randn(2)
+        ))[0, :] + noise_factor * 0.002 * np.random.randn(2)
 
         euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
         if abs(u_dx) > self.max_axis_move:
@@ -121,7 +121,7 @@ class Client():
 
         return u_dx, u_dy
 
-    def do_one_trial(self, noise_factor=1.0, max_movements=32):
+    def do_one_trial(self, noise_factor=1.0, max_movements=64):
         experience = []
         self.update_weights()
         logger.debug('Setting random start and goal poses')
