@@ -86,8 +86,7 @@ class Client():
 
     def start(self):
         for i in range(16):
-            #if i % 4:
-            if True:
+            if i % 4:
                 self.do_one_trial(noise_factor=1.0)
             else:
                 trial = self.do_one_trial(noise_factor=1.0)
@@ -109,10 +108,9 @@ class Client():
 
     def next_move(self, eef_x, eef_y, noise_factor=1.0):
         # new controls plus noise
-        #u_dx, u_dy = self.max_axis_move * self.nn.mu.predict(create_state_vector(
-        #    eef_x, eef_y, self.goal_x, self.goal_y
-        #))[0, :] + noise_factor * 0.02 * np.random.randn(2)
-        u_dx, u_dy = noise_factor * self.max_axis_move * 0.5 * np.random.randn(2) # TODO Remove this
+        u_dx, u_dy = self.max_axis_move * self.nn.mu.predict(create_state_vector(
+            eef_x, eef_y, self.goal_x, self.goal_y
+        ))[0, :] + noise_factor * 0.006 * np.random.randn(2)
 
         euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
         if abs(u_dx) > self.max_axis_move:
@@ -124,7 +122,7 @@ class Client():
 
     def do_one_trial(self, noise_factor=1.0, max_movements=32):
         experience = []
-        #self.update_weights()
+        self.update_weights()
         logger.debug('Setting random start and goal poses')
         self.goal_x, self.goal_y, _ = random_pose()
         logger.info('New goal at x: {}, y: {}'.format(self.goal_x, self.goal_y))
