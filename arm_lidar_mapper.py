@@ -48,26 +48,25 @@ if __name__ == '__main__':
     theta_lidar = []
     theta_arm = []
 
-    for x in 2 * np.random.rand(8) * 0.15 - 0.15:
-        for y in np.random.rand(8) * 0.15 + 0.13:
-            arm.move_to(x, y, 0.08, velocity=0.5)
-            sleep(3.0)
-            arm.move_to(x, y, 0.04)
-            sleep(2.0)
-            ax, ay, _ = arm.get_position()
-            atheta = first_quadrant(np.arctan2(ay, ax))
-            res = cube_pose()
-            if res is None:
-                continue
-            cx, cy, ctheta = res
-            ctheta = first_quadrant(ctheta)
-            print('arm:', ax, ay, np.cos(atheta), np.sin(atheta))
-            print('lidar:', cx, cy, np.cos(ctheta), np.sin(atheta))
-            print()
-            X_arm.append((ax, ay))
-            theta_arm.append(atheta)
-            X_lidar.append((cx, cy))
-            theta_lidar.append(ctheta)
+    for x, y in np.random.rand(64, 2) * np.array([0.30, 0.15]) + np.array([-0.15, 0.13]):
+        arm.move_to(x, y, 0.08, velocity=0.5)
+        sleep(3.0)
+        arm.move_to(x, y, 0.04)
+        sleep(2.0)
+        ax, ay, _ = arm.get_position()
+        atheta = first_quadrant(np.arctan2(ay, ax))
+        res = cube_pose()
+        if res is None:
+            continue
+        cx, cy, ctheta = res
+        ctheta = first_quadrant(ctheta)
+        print('arm:', ax, ay, np.cos(atheta), np.sin(atheta))
+        print('lidar:', cx, cy, np.cos(ctheta), np.sin(atheta))
+        print()
+        X_arm.append((ax, ay))
+        theta_arm.append(atheta)
+        X_lidar.append((cx, cy))
+        theta_lidar.append(ctheta)
     
     A, b = lidar_to_arm_mapping(X_lidar, X_arm)
     Ar = lidar_rotation_to_arm(theta_lidar, theta_arm)
