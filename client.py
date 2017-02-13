@@ -89,7 +89,7 @@ class Client():
             if i % 4:
                 self.do_one_trial(noise_factor=1.0)
             else:
-                trial = self.do_one_trial(noise_factor=1.0)
+                trial = self.do_one_trial(noise_factor=0.0)
                 if trial is None:
                     continue
                 try:
