@@ -19,8 +19,11 @@ logger.setLevel(logging.INFO)
 
 
 def remove_command_threshold(dx, dy):
-    dx += np.sign(dx) * 0.0058
-    dy += np.sign(dy) * 0.0058
+    #dx += 0.0058 * np.sign(dx)
+    #dy += 0.0058 * np.sign(dy)
+    theta = np.arctan2(dy, dx)
+    dx += 0.0055 * np.cos(theta)
+    dy += 0.0055 * np.sin(theta)
     return dx, dy
 
 
@@ -69,7 +72,7 @@ class Client():
         self.arm = Arm()
         self.nn = NNet(x_size=2 + 2, u_size=2)
         self.session = requests.Session()
-        self.max_axis_move = 0.010
+        self.max_axis_move = 0.012
         sleep(2.0)
 
     def update_weights(self):
@@ -84,7 +87,7 @@ class Client():
     def start(self):
         for i in range(16):
             if i % 4:
-                self.do_one_trial()
+                self.do_one_trial(noise_factor=1.0)
             else:
                 trial = self.do_one_trial(noise_factor=0.0)
                 if trial is None:
@@ -103,9 +106,7 @@ class Client():
         self.arm.move_to(x, y, z)
         sleep(1.5)
 
-    def next_move(self, noise_factor=1.0):
-        eef_x, eef_y, _ = self.arm.get_position()
-
+    def next_move(self, eef_x, eef_y, noise_factor=1.0):
         # new controls plus noise
         u_dx, u_dy = self.max_axis_move * self.nn.mu.predict(create_state_vector(
             eef_x, eef_y, self.goal_x, self.goal_y
@@ -127,10 +128,9 @@ class Client():
         logger.info('New goal at x: {}, y: {}'.format(self.goal_x, self.goal_y))
         self.random_start_pose()
         for i in range(max_movements):
-            x, y, z = self.arm.get_position()
-            dx, dy = self.next_move(noise_factor=noise_factor)
+            x, y, _ = self.arm.get_position()
+            dx, dy = self.next_move(x, y, noise_factor=noise_factor)
             dx_fixed, dy_fixed = remove_command_threshold(dx, dy)
-            logger.debug('Sending relative angle commands: {}'.format([dx, dy]))
             if self.arm._arm.is_connected():
                 self.arm.move_to(x + dx_fixed, y + dy_fixed, 0.03)
             else:
@@ -139,12 +139,13 @@ class Client():
                 exit(-1)
             sleep(0.2)
             xp, yp, _ = self.arm.get_position()
+            error_euclid = euclidean([xp - x, yp - y], [dx, dy])
+            if error_euclid > 0.01:
+                logger.warning('Large command/measure error: {:.4f} m, aborting trial'.format(euclidean([xp - x, yp - y], [dx, dy])))
+                return
             state_prime = create_state_vector(xp, yp, self.goal_x, self.goal_y)
             r = reward(xp, yp, self.goal_x, self.goal_y)
             if is_lose_pose(xp, yp):
-                if abs(xp) > 0.2 or yp < 0.10:
-                    logger.debug('Ignoring strange observation}')
-                    return
                 r = -4
             logger.debug('reward: {}'.format(r))
             experience.append({
