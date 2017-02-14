@@ -121,7 +121,7 @@ class Client():
 
         return u_dx, u_dy
 
-    def do_one_trial(self, noise_factor=1.0, max_movements=64):
+    def do_one_trial(self, noise_factor=1.0, max_movements=32):
         experience = []
         self.update_weights()
         logger.debug('Setting random start and goal poses')
