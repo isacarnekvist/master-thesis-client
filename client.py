@@ -140,8 +140,8 @@ class Client():
             0.21 + 0.07 * np.sin(theta),
             0.03
         )
-        self.arm.move_to(x, y, z)
-        sleep(1.0)
+        self.arm.move_to(x, y, z, velocity=0.5)
+        sleep(2.0)
 
     def next_move(self, state_vector, noise_factor=1.0):
         # new controls plus noise
@@ -160,17 +160,19 @@ class Client():
     def replace_cube(self, x, y):
         x_now, y_now, _ = cube_pose_retry()
         sleep(1.0)
-        self.arm.move_to(x_now, y_now, 0.06)
+        self.arm.move_to(x_now, y_now, 0.08)
         sleep(1.0)
+        x_now, y_now, _ = cube_pose_retry()
         self.arm.move_to(x_now, y_now, 0.03)
         self.arm.set_pump(1)
         sleep(1.0)
-        self.arm.move_to(x, y, 0.06)
+        self.arm.move_to(x, y, 0.08)
         sleep(1.0)
-        self.arm.move_to(x, y, 0.03)
+        self.arm.move_to(x, y, 0.03, velocity=0.5)
+        sleep(1.0)
         self.arm.set_pump(0)
         sleep(1.0)
-        self.arm.move_to(x, y, 0.08)
+        self.arm.move_to(x, y, 0.08, velocity=0.5)
         sleep(1.0)
 
     def do_one_trial(self, noise_factor=1.0, max_movements=32):
