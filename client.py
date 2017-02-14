@@ -16,7 +16,7 @@ from pyuarm.protocol import SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT
 
 logcolor.basic_config(level=logging.ERROR)
 logger = logging.getLogger('client')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 def remove_command_threshold(dx, dy, max_axis_move):
@@ -30,7 +30,11 @@ def remove_command_threshold(dx, dy, max_axis_move):
 
 
 def create_state_vector(eef_x, eef_y, cube_x, cube_y, goal_x, goal_y):
-    return np.array([[eef_x, eef_y, cube_x, cube_y, goal_x, goal_y]])
+    cube_world_angle = np.arctan2(cube_y - eef_y, cube_x - eef_x)
+    arm_world_angle = np.arctan2(eef_y, eef_x)
+    theta = cube_world_angle - (arm_world_angle - np.pi / 2)
+    distance = np.linalg.norm([cube_y - eef_y, cube_x - eef_x])
+    return np.array([[eef_x, eef_y, distance * np.cos(theta), distance * np.sin(theta), goal_x, goal_y]])
 
 
 def random_in_range(a, b):
@@ -129,11 +133,9 @@ class Client():
         self.arm.move_to(x, y, z)
         sleep(1.0)
 
-    def next_move(self, eef_x, eef_y, cube_x, cube_y, goal_x, goal_y, noise_factor=1.0):
+    def next_move(self, state_vector, noise_factor=1.0):
         # new controls plus noise
-        u_dx, u_dy = self.nn.mu.predict(create_state_vector(
-            eef_x, eef_y, cube_x, cube_y, goal_x, goal_y
-        ))[0, :] + noise_factor * 0.005 * np.random.randn(2)
+        u_dx, u_dy = self.nn.mu.predict(state_vector)[0, :] + noise_factor * 0.005 * np.random.randn(2)
 
         euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
         if abs(u_dx) > self.max_axis_move:
@@ -171,9 +173,10 @@ class Client():
         for i in range(max_movements):
             x, y, _ = self.arm.get_position()
             cube_x, cube_y, _ = cube_pose()
-            dx, dy = self.next_move(x, y, cube_x, cube_y, goal_x, goal_y, noise_factor=noise_factor)
+            state = create_state_vector(x, y, cube_x, cube_y, goal_x, goal_y)
+            dx, dy = self.next_move(state, noise_factor=noise_factor)
             dx_fixed, dy_fixed = remove_command_threshold(dx, dy, self.max_axis_move)
-            logger.warning('Sending command: {}, {}. Corrected to: {} {}'.format(dx, dy, dx_fixed, dy_fixed))
+            logger.debug('Sending command: {:.3f}, {:.3f}. Corrected to: {:.3f} {:.3f}'.format(dx, dy, dx_fixed, dy_fixed))
             if self.arm._arm.is_connected():
                 self.arm.move_to(x + dx_fixed, y + dy_fixed, 0.03)
             else:
@@ -191,13 +194,14 @@ class Client():
             r = reward(xp, yp, cube_xp, cube_yp, goal_x, goal_y)
             if is_lose_pose(xp, yp, cube_xp, cube_yp):
                 r = -4
-            logger.debug('reward: {}'.format(r))
+            logger.info('Observed reward: {}'.format(r))
             experience.append({
-                'x': [  x,  y,  cube_x,  cube_x, goal_x, goal_y],
-                'xp': [xp, yp, cube_xp, cube_yp, goal_x, goal_y],
+                'x': list(state[0, :]),
+                'xp': list(state_prime[0, :]),
                 'u': [dx, dy],
                 'r': r,
             })
+            logger.debug('Cube relative to arm at: {}'.format(state_prime[0, 2:4]))
             if is_lose_pose(xp, yp, cube_xp, cube_yp):
                 logger.info('Reached outside workspace')
                 break
@@ -229,4 +233,3 @@ except KeyboardInterrupt:
 
 c.stop()
 lw.stop()
-print('here')
