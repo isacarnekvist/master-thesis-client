@@ -108,7 +108,7 @@ class Client():
         self.nn.q.set_weights([np.array(param) for param in params])
 
     def start(self):
-        for i in range(8):
+        for i in range(32):
             if i % 4:
                 self.do_one_trial(noise_factor=1.0)
             else:
