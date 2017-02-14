@@ -99,6 +99,7 @@ class Client():
         sleep(2.0)
 
     def update_weights(self):
+        return # TODO remove
         logger.debug('Fetching new parameters')
         try:
             params = json.loads(self.session.get('http://beorn:5000/get_params').text)
@@ -135,7 +136,9 @@ class Client():
 
     def next_move(self, state_vector, noise_factor=1.0):
         # new controls plus noise
-        u_dx, u_dy = self.nn.mu.predict(state_vector)[0, :] + noise_factor * 0.005 * np.random.randn(2)
+        #u_dx, u_dy = self.nn.mu.predict(state_vector)[0, :] + noise_factor * 0.005 * np.random.randn(2)
+        u_dx, u_dy = 0.006 * np.random.randn(2) # TODO remove
+        return u_dx, u_dy
 
         euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
         if abs(u_dx) > self.max_axis_move:
