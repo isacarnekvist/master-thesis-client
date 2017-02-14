@@ -65,6 +65,15 @@ def random_pose():
     )
 
 
+def cube_pose_retry():
+    for i in range(10):
+        res = cube_pose()
+        if res is None:
+            sleep(1.0)
+        else:
+            return res
+
+
 def random_cube_start_goal():
     theta = np.random.rand() * 2 * np.pi
     target_rotation = np.random.rand() * 2 * np.pi
@@ -149,7 +158,7 @@ class Client():
         return u_dx, u_dy
 
     def replace_cube(self, x, y):
-        x_now, y_now, _ = cube_pose()
+        x_now, y_now, _ = cube_pose_retry()
         sleep(1.0)
         self.arm.move_to(x_now, y_now, 0.06)
         sleep(1.0)
@@ -175,7 +184,7 @@ class Client():
         logger.info('New goal at x: {}, y: {}'.format(goal_x, goal_y))
         for i in range(max_movements):
             x, y, _ = self.arm.get_position()
-            cube_x, cube_y, _ = cube_pose()
+            cube_x, cube_y, _ = cube_pose_retry()
             state = create_state_vector(x, y, cube_x, cube_y, goal_x, goal_y)
             dx, dy = self.next_move(state, noise_factor=noise_factor)
             dx_fixed, dy_fixed = remove_command_threshold(dx, dy, self.max_axis_move)
@@ -188,7 +197,7 @@ class Client():
                 exit(-1)
             sleep(0.2)
             xp, yp, _ = self.arm.get_position()
-            cube_xp, cube_yp, _ = cube_pose()
+            cube_xp, cube_yp, _ = cube_pose_retry()
             error_euclid = euclidean([xp - x, yp - y], [dx, dy])
             if error_euclid > 0.01:
                 logger.warning('Large command/measure error: {:.4f} m, aborting trial'.format(euclidean([xp - x, yp - y], [dx, dy])))
