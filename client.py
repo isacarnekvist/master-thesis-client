@@ -15,7 +15,7 @@ from pyuarm.protocol import SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT
 
 logcolor.basic_config(level=logging.ERROR)
 logger = logging.getLogger('client')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 def remove_command_threshold(dx, dy, max_axis_move):
@@ -23,8 +23,8 @@ def remove_command_threshold(dx, dy, max_axis_move):
     #dy += 0.0058 * np.sign(dy)
     theta = np.arctan2(dy, dx)
     k = np.linalg.norm([dx, dy]) / max_axis_move
-    dx += (1 - k) * 0.012 * np.cos(theta) + k * 0.0065 * np.cos(theta)
-    dy += (1 - k) * 0.012 * np.sin(theta) + k * 0.0065 * np.cos(theta)
+    dx += 0.0058 * np.cos(theta)
+    dy += 0.0058 * np.sin(theta)
     return dx, dy
 
 
@@ -71,9 +71,9 @@ class Client():
 
     def __init__(self):
         self.arm = Arm()
-        self.nn = NNet(x_size=2 + 2, u_size=2)
         self.session = requests.Session()
         self.max_axis_move = 0.012
+        self.nn = NNet(x_size=2 + 2, u_size=2, mu_scaling=self.max_axis_move)
         sleep(2.0)
 
     def update_weights(self):
@@ -109,7 +109,7 @@ class Client():
 
     def next_move(self, eef_x, eef_y, noise_factor=1.0):
         # new controls plus noise
-        u_dx, u_dy = self.max_axis_move * self.nn.mu.predict(create_state_vector(
+        u_dx, u_dy = self.nn.mu.predict(create_state_vector(
             eef_x, eef_y, self.goal_x, self.goal_y
         ))[0, :] + noise_factor * 0.002 * np.random.randn(2)
 
@@ -132,6 +132,7 @@ class Client():
             x, y, _ = self.arm.get_position()
             dx, dy = self.next_move(x, y, noise_factor=noise_factor)
             dx_fixed, dy_fixed = remove_command_threshold(dx, dy, self.max_axis_move)
+            logger.warning('Sending command: {}, {}. Corrected to: {} {}'.format(dx, dy, dx_fixed, dy_fixed))
             if self.arm._arm.is_connected():
                 self.arm.move_to(x + dx_fixed, y + dy_fixed, 0.03)
             else:
