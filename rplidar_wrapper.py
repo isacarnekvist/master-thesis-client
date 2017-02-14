@@ -25,6 +25,8 @@ class LidarWrapper:
             try:
                 rpl = RPLidar('/dev/ttyUSB1')
                 for i, scan in enumerate(rpl.iter_measurments()):
+                    if not threading.current_thread().do_run:
+                        break
                     _, _, angle, distance = scan
                     # lidar is upside down, so change it here
                     angle = int(angle)

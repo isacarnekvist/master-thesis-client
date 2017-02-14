@@ -73,4 +73,9 @@ def cube_pose():
 if __name__ == '__main__':
     while True:
         sleep(1.0)
-        print(cube_pose())
+        res = cube_pose()
+        if res is None:
+            continue
+        else:
+            x, y, theta = res
+        print(x, y, np.cos(4 * theta), np.sin(4 * theta))
