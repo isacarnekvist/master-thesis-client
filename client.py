@@ -19,6 +19,13 @@ logger = logging.getLogger('client')
 logger.setLevel(logging.INFO)
 
 
+def suspicious_transition(X):
+    ex1, ey1, cx1, cy1, gx1, gy1 = X['x']
+    ex2, ey2, cx2, cy2, gx2, gy2 = X['xp']
+    d = np.linalg.norm([cx1 - cx2, cy1 - cy2])
+    return d > 0.03
+
+
 def remove_command_threshold(dx, dy, max_axis_move):
     #dx += 0.0058 * np.sign(dx)
     #dy += 0.0058 * np.sign(dy)
@@ -200,19 +207,23 @@ class Client():
             cube_xp, cube_yp, _ = cube_pose_retry()
             error_euclid = euclidean([xp - x, yp - y], [dx, dy])
             if error_euclid > 0.01:
-                logger.warning('Large command/measure error: {:.4f} m, aborting trial'.format(euclidean([xp - x, yp - y], [dx, dy])))
-                return
+                logger.info('Ignoring transition, large command/measure error')
+                continue
             state_prime = create_state_vector(xp, yp, cube_xp, cube_yp, goal_x, goal_y)
             r = reward(xp, yp, cube_xp, cube_yp, goal_x, goal_y)
             if is_lose_pose(xp, yp, cube_xp, cube_yp):
                 r = -4
-            logger.info('Observed reward: {}'.format(r))
-            experience.append({
+            transition = {
                 'x': list(state[0, :]),
                 'xp': list(state_prime[0, :]),
                 'u': [dx, dy],
                 'r': r,
-            })
+            }
+            if suspicious_transition(transition):
+                logger.info('Ignoring transition, large deviation in cube pose')
+                continue
+            experience.append(transition)
+            logger.info('Observed reward: {}'.format(r))
             logger.debug('Cube at: {}'.format(state_prime[0, 2:4]))
             if is_lose_pose(xp, yp, cube_xp, cube_yp):
                 logger.info('Reached outside workspace')
