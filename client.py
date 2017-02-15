@@ -30,11 +30,7 @@ def remove_command_threshold(dx, dy, max_axis_move):
 
 
 def create_state_vector(eef_x, eef_y, cube_x, cube_y, goal_x, goal_y):
-    cube_world_angle = np.arctan2(cube_y - eef_y, cube_x - eef_x)
-    arm_world_angle = np.arctan2(eef_y, eef_x)
-    theta = cube_world_angle - (arm_world_angle - np.pi / 2)
-    distance = np.linalg.norm([cube_y - eef_y, cube_x - eef_x])
-    return np.array([[eef_x, eef_y, distance * np.cos(theta), distance * np.sin(theta), goal_x, goal_y]])
+    return np.array([[eef_x, eef_y, cube_x, cube_y, goal_x, goal_y]])
 
 
 def random_in_range(a, b):
@@ -108,7 +104,6 @@ class Client():
         sleep(2.0)
 
     def update_weights(self):
-        return # TODO remove
         logger.debug('Fetching new parameters')
         try:
             params = json.loads(self.session.get('http://beorn:5000/get_params').text)
@@ -145,9 +140,7 @@ class Client():
 
     def next_move(self, state_vector, noise_factor=1.0):
         # new controls plus noise
-        #u_dx, u_dy = self.nn.mu.predict(state_vector)[0, :] + noise_factor * 0.005 * np.random.randn(2)
-        u_dx, u_dy = 0.006 * np.random.randn(2) # TODO remove
-        return u_dx, u_dy
+        u_dx, u_dy = self.nn.mu.predict(state_vector)[0, :] + noise_factor * 0.01 * np.random.randn(2)
 
         euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
         if abs(u_dx) > self.max_axis_move:
@@ -158,21 +151,24 @@ class Client():
         return u_dx, u_dy
 
     def replace_cube(self, x, y):
+        x_arm, y_arm, _ = self.arm.get_position()
+        sleep(1.0)
+        self.arm.move_to(x_arm, y_arm, 0.08, velocity=0.5) # raise arm first
         x_now, y_now, _ = cube_pose_retry()
         sleep(1.0)
-        self.arm.move_to(x_now, y_now, 0.08)
+        self.arm.move_to(x_now, y_now, 0.08)               # move to above cube
         sleep(1.0)
         x_now, y_now, _ = cube_pose_retry()
-        self.arm.move_to(x_now, y_now, 0.03)
+        self.arm.move_to(x_now, y_now, 0.03)               # lower onto cube
         self.arm.set_pump(1)
         sleep(1.0)
-        self.arm.move_to(x, y, 0.08)
+        self.arm.move_to(x, y, 0.08)                       # lift
         sleep(1.0)
-        self.arm.move_to(x, y, 0.03, velocity=0.5)
+        self.arm.move_to(x, y, 0.03, velocity=0.5)         # replace
         sleep(1.0)
         self.arm.set_pump(0)
         sleep(1.0)
-        self.arm.move_to(x, y, 0.08, velocity=0.5)
+        self.arm.move_to(x, y, 0.08, velocity=0.5)         # raise arm above cube
         sleep(1.0)
 
     def do_one_trial(self, noise_factor=1.0, max_movements=32):
@@ -215,7 +211,7 @@ class Client():
                 'u': [dx, dy],
                 'r': r,
             })
-            logger.debug('Cube relative to arm at: {}'.format(state_prime[0, 2:4]))
+            logger.debug('Cube at: {}'.format(state_prime[0, 2:4]))
             if is_lose_pose(xp, yp, cube_xp, cube_yp):
                 logger.info('Reached outside workspace')
                 break
