@@ -47,7 +47,7 @@ def is_lose_pose(x, y, cube_x, cube_y):
     return False
 
 def is_win_pose(x, y, cube_x, cube_y, gx, gy):
-    if euclidean([x, y], [gx, gy]) < 0.005:
+    if euclidean([cube_x, cube_y], [gx, gy]) < 0.005:
         return True
     else:
         return False
