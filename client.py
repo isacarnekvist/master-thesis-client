@@ -141,6 +141,8 @@ class Client():
     def next_move(self, state_vector, noise_factor=1.0):
         # new controls plus noise
         u_dx, u_dy = self.nn.mu.predict(state_vector)[0, :] + noise_factor * 0.01 * np.random.randn(2)
+        if np.random.rand() < 0.3 * noise_factor:
+            u_dx, u_dy = noise_factor * 0.01 * np.random.randn(2)
 
         euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
         if abs(u_dx) > self.max_axis_move:
@@ -159,7 +161,7 @@ class Client():
         self.arm.move_to(x_now, y_now, 0.08)               # move to above cube
         sleep(1.0)
         x_now, y_now, _ = cube_pose_retry()
-        self.arm.move_to(x_now, y_now, 0.035)              # lower onto cube
+        self.arm.move_to(x_now, y_now, 0.032)              # lower onto cube
         self.arm.set_pump(1)
         sleep(1.0)
         self.arm.move_to(x, y, 0.08)                       # lift
