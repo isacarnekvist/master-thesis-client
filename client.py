@@ -153,22 +153,22 @@ class Client():
     def replace_cube(self, x, y):
         x_arm, y_arm, _ = self.arm.get_position()
         sleep(1.0)
-        self.arm.move_to(x_arm, y_arm, 0.08, velocity=0.5) # raise arm first
+        self.arm.move_to(x_arm, y_arm, 0.08) # raise arm first
         x_now, y_now, _ = cube_pose_retry()
         sleep(1.0)
         self.arm.move_to(x_now, y_now, 0.08)               # move to above cube
         sleep(1.0)
         x_now, y_now, _ = cube_pose_retry()
-        self.arm.move_to(x_now, y_now, 0.03)               # lower onto cube
+        self.arm.move_to(x_now, y_now, 0.035)              # lower onto cube
         self.arm.set_pump(1)
         sleep(1.0)
         self.arm.move_to(x, y, 0.08)                       # lift
         sleep(1.0)
         self.arm.move_to(x, y, 0.03, velocity=0.5)         # replace
-        sleep(1.0)
+        sleep(3.0)
         self.arm.set_pump(0)
         sleep(1.0)
-        self.arm.move_to(x, y, 0.08, velocity=0.5)         # raise arm above cube
+        self.arm.move_to(x, y, 0.08)         # raise arm above cube
         sleep(1.0)
 
     def do_one_trial(self, noise_factor=1.0, max_movements=32):
