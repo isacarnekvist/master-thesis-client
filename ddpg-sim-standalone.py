@@ -26,6 +26,9 @@ from keras.layers import Dense, Merge, Input, Lambda, merge, Layer, BatchNormali
 from naf.priority_buffer import PriorityBuffer
 
 
+theano.sandbox.cuda.use('gpu0')
+
+
 WIN = 0
 LOSE = 1
 NEUTRAL = 2
@@ -236,7 +239,7 @@ def last_reward_average(actor):
             mu = actor.predict(e.get_state())
             _, r, _ = e.interact(*mu.flatten())
         rewards.append(r)
-    return np.mean(rewards)
+    return np.mean(rewards), np.std(rewards)
 
 
 e = Environment()
@@ -251,17 +254,22 @@ critic = Critic((2 + 2 + 2), 2, hidden_size=hidden_size)
 critic_target = Critic((2 + 2 + 2), 2, hidden_size=hidden_size)
 critic_target.nn.set_weights(critic.nn.get_weights())
 
-print('Loading saved params')
-nets = [actor, actor_target, critic, critic_target]
-names = ['actor', 'actor_target', 'critic', 'critic_target']
-for net, name in zip(nets, names):
-    with open(name + '.pkl', 'rb') as f:
-        p = pickle.load(f)
-        net.nn.set_weights(p)
-
-print('Loading replay buffer')
-with open('replay_buffer.pkl', 'rb') as f:
-    replay_buffer = pickle.load(f)
+#print('Loading saved params')
+#nets = [actor, actor_target, critic, critic_target]
+#names = ['actor', 'actor_target', 'critic', 'critic_target']
+#for net, name in zip(nets, names):
+#    with open(name + '.pkl', 'rb') as f:
+#        p = pickle.load(f)
+#        net.nn.set_weights(p)
+#
+#print('Loading replay buffer')
+#try:
+#    with open('replay_buffer.pkl', 'rb') as f:
+#        replay_buffer = pickle.load(f)
+#except Exception as e:
+#    print('Failed loading replay buffer, creating new.', e)
+#    replay_buffer = PriorityBuffer(2 ** 21)
+replay_buffer = PriorityBuffer(2 ** 20)
 
 epoch_size = 1024
 batch_size = 32
@@ -307,6 +315,7 @@ for a in range(a, int(n_iterations)):
     n_inner = 16
     for i in range(n_inner):
         exp_nodes = []
+        gen_targets_start = datetime.now()
         for b in range(epoch_size):
             sample = replay_buffer.sample()
             exp_nodes.append(sample)
@@ -319,31 +328,53 @@ for a in range(a, int(n_iterations)):
         [node.set_value(abs(delta) + epsilon) for node, delta in zip(exp_nodes, (Q - Y)[:, 0])]
         beta = np.exp((a - n_iterations) / (0.1 * n_iterations))
         sample_weight = np.array([1.0 / node.value for node in exp_nodes]) ** beta
+        print('Target generation {} took {}'.format(epoch_size, datetime.now() - gen_targets_start))
+
+        train_start = datetime.now()
         critic.nn.fit([X, U], Y, verbose=0, sample_weight=sample_weight, batch_size=batch_size, nb_epoch=16)
+        print('fit() needed {}'.format(datetime.now() - train_start))
+
+        train_start = datetime.now()
+        ls_grads = []
+        rs_grads = []
+        for b in range(epoch_size):
+            ls_grads.append(critic.gradients(X[b:b + 1, :], U[b:b + 1, :]))
+            rs_grads.append(actor.gradients(X[b:b + 1, :]))
+        print('policy partial gradients needed {}'.format(datetime.now() - train_start))
+
+        train_start = datetime.now()
         policy_gradient *= 0
         for b in range(epoch_size):
             policy_gradient += sample_weight[b] * np.dot(
-                critic.gradients(X[b:b + 1, :], U[b:b + 1, :]),
-                actor.gradients(X[b:b + 1, :])
+                ls_grads[b],
+                rs_grads[b]
             ) / epoch_size
+        print('policy gradient average and dots needed {}'.format(datetime.now() - train_start))
+
+        train_start = datetime.now()
         actor.update_with_policy_gradient(policy_gradient, lr=0.1)
+        print('policy gradient update needed {}'.format(datetime.now() - train_start))
+
+        train_start = datetime.now()
         actor_target.soft_update(actor.nn.weights, lr=0.001)
         critic_target.soft_update(critic.nn.weights, lr=0.001)
+        print('soft updates needed {}'.format(datetime.now() - train_start))
         
         if datetime.now() > latest_info + timedelta(seconds=30):
-            print('last reward avg: {:.3f} beta: {:.3f} outer: {}/{} inner: {}/{} {}'.format(
-                last_reward_average(actor), beta, a, n_iterations, i, n_inner, replay_buffer
+            last_reward_avg, last_reward_std = last_reward_average(actor)
+            print('last reward avg: {:.3f} std: {:.3f} beta: {:.3f} outer: {}/{} inner: {}/{} {}'.format(
+                last_reward_avg, last_reward_std, beta, a, n_iterations, i, n_inner, replay_buffer
             ))
             latest_info = datetime.now()
 
-        if datetime.now() > latest_param_save + timedelta(seconds=5 * 60):
-            print('Saving parameters')
-            nets = [actor, actor_target, critic, critic_target]
-            names = ['actor', 'actor_target', 'critic', 'critic_target']
-            for net, name in zip(nets, names):
-                with open(name + '.pkl', 'wb') as f:
-                    pickle.dump(net.nn.get_weights(), f, protocol=2)
-            print('Saving replay buffer')
-            with open('replay_buffer.pkl', 'wb') as f:
-                pickle.dump(replay_buffer, f, protocol=2)
-            latest_param_save = datetime.now()
+        #if datetime.now() > latest_param_save + timedelta(seconds=5 * 60):
+        #    print('Saving Parameters')
+        #    nets = [actor, actor_target, critic, critic_target]
+        #    names = ['actor', 'actor_target', 'critic', 'critic_target']
+        #    for net, name in zip(nets, names):
+        #        with open(name + '.pkl', 'wb') as f:
+        #            pickle.dump(net.nn.get_weights(), f, protocol=2)
+        #    print('Saving replay buffer')
+        #    with open('replay_buffer.pkl', 'wb') as f:
+        #        pickle.dump(replay_buffer, f, protocol=2)
+        #    latest_param_save = datetime.now()
