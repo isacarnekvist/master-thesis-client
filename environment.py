@@ -27,34 +27,43 @@ class Circle:
             return
         self.x -= distance * np.cos(theta)
         self.y -= distance * np.sin(theta)
+
+    @property
+    def x(self):
+        return self._x
+
+    @x.setter
+    def x(self, value):
+        self._x = np.round(value, 2)
+
+    @property
+    def y(self):
+        return self._y
+        
+    @y.setter
+    def y(self, value):
+        self._y = np.round(value, 2)
+
         
 class Environment:
     
-    def __init__(self):
+    def __init__(self, max_dist):
+        self.max_dist = max_dist
         self.reset()
     
     def reset(self):
         # Random on inner and outer circle
-        eef_theta = np.random.rand() * 2 * np.pi
-        self.eef_x = 0.10 * np.cos(eef_theta)
-        self.eef_y = 0.20 + 0.07 * np.sin(eef_theta)
-        circle_theta = np.random.rand() * 2 * np.pi
-        circle_x = 0.04 * np.cos(circle_theta)
-        circle_y = 0.20 + 0.02 * np.sin(circle_theta)
+        circle_x = 0.20 * np.random.rand() - 0.10
+        circle_y = 0.10 * np.random.rand() + 0.16
+        self.goal_x = 0.00
+        self.goal_y = 0.22
         self.circle = Circle(circle_x, circle_y)
-        while True:
-            goal_theta = np.random.rand() * 2 * np.pi
-            self.goal_x = 0.04 * np.cos(goal_theta)
-            self.goal_y = 0.20 + 0.02 * np.sin(goal_theta)
-            if np.linalg.norm([self.goal_x - circle_x, self.goal_y - circle_y]) > 0.04:
-                break
-        while True:
-            self.eef_x  = -0.10 + np.random.rand() * 0.20
-            self.eef_y  =  0.12 + np.random.rand() * 0.17
-            if np.linalg.norm([self.eef_x - circle_x, self.eef_y - circle_y]) < 0.04:
-                continue
-            else:
-                break
+        eef_theta = np.random.rand() * 2 * np.pi
+        self.eef_x = circle_x
+        self.eef_y = circle_y
+        while np.linalg.norm([self.eef_x - circle_x, self.eef_y - circle_y]) < 0.03:
+            self.eef_x = 0.20 * np.random.rand() - 0.10
+            self.eef_y = 0.10 * np.random.rand() + 0.16
 
     def get_state(self):
         return create_state_vector(
@@ -68,9 +77,9 @@ class Environment:
 
     def interact(self, dx, dy):
         dist = np.linalg.norm([dx, dy])
-        if dist > MAX_DIST:
-            dx = MAX_DIST * dx / dist
-            dy = MAX_DIST * dy / dist
+        if dist > self.max_dist:
+            dx = self.max_dist * dx / dist
+            dy = self.max_dist * dy / dist
         self.eef_x += dx
         self.eef_y += dy
         self.circle.interact(self.eef_x, self.eef_y)
@@ -92,11 +101,42 @@ class Environment:
             circle2goal = np.linalg.norm([self.goal_x - self.circle.x, self.goal_y - self.circle.y])
             reward = (
                 np.exp(-200 * eef2circle ** 2) - 1 +
-                2 * np.exp(-200 * circle2goal ** 2) - 1
+                2 * (np.exp(-200 * circle2goal ** 2) - 1)
             )
         
         return state, reward, self.get_state()
-        
+    
+    def heuristic_move(self):
+        e = self
+        a = np.array([e.eef_x, e.eef_y])
+        b = np.array([e.circle.x, e.circle.y])
+        d = b - a
+        d_norm = np.linalg.norm(d)
+        theta = np.arcsin(0.02 / d_norm)
+        A = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+        xa = np.dot(A, d) * np.sqrt(d_norm ** 2 - 0.02 ** 2) / d_norm
+        xb = np.dot(A.T, d) * np.sqrt(d_norm ** 2 - 0.02 ** 2) / d_norm
+
+        fg = np.array([e.goal_x, e.goal_y])
+        if np.linalg.norm(fg - b) < 0.0005:
+            return np.zeros(2)
+        pd = (fg - b) / np.linalg.norm(fg - b) # pushing direction
+        pg = b - pd * 0.02                     # pushing goal
+        e_dist = np.linalg.norm(xa)
+        a_dist = np.linalg.norm(pg - a - xa)
+        b_dist = np.linalg.norm(pg - a - xb)
+        pg_dist = np.linalg.norm(a - pg)
+        if pg_dist < 0.005:
+            return min(self.max_dist, d_norm) * pd
+        if 0.002 < e_dist < pg_dist:
+            if a_dist < b_dist:
+                return min(self.max_dist, np.linalg.norm(xa)) * xa / np.linalg.norm(xa)
+            else:
+                return min(self.max_dist, np.linalg.norm(xb)) * xb / np.linalg.norm(xb)
+        else:
+            return min(self.max_dist, np.linalg.norm(pg - a)) * (pg - a) / np.linalg.norm(pg - a)
+
+
     def plot(self, ax=None):
         import matplotlib.pyplot as plt
         if ax is None:
