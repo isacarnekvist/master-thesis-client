@@ -17,7 +17,7 @@ class Circle:
     def __init__(self, x, y):
         self.x = x
         self.y = y
-        self.radius = 0.02
+        self.radius = 0.03
         
     def interact(self, x, y):
         theta = np.arctan2(y - self.y, x - self.x)
@@ -28,23 +28,7 @@ class Circle:
         self.x -= distance * np.cos(theta)
         self.y -= distance * np.sin(theta)
 
-    @property
-    def x(self):
-        return self._x
 
-    @x.setter
-    def x(self, value):
-        self._x = np.round(value, 2)
-
-    @property
-    def y(self):
-        return self._y
-        
-    @y.setter
-    def y(self, value):
-        self._y = np.round(value, 2)
-
-        
 class Environment:
     
     def __init__(self, max_dist):
@@ -100,8 +84,9 @@ class Environment:
             eef2circle = np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y])
             circle2goal = np.linalg.norm([self.goal_x - self.circle.x, self.goal_y - self.circle.y])
             reward = (
-                np.exp(-200 * eef2circle ** 2) - 1 +
-                2 * (np.exp(-200 * circle2goal ** 2) - 1)
+                #np.exp(-200 * eef2circle ** 2) - 1 +
+                #2 * (np.exp(-200 * circle2goal ** 2) - 1)
+                np.exp(-200 * circle2goal ** 2) - 1
             )
         
         return state, reward, self.get_state()
@@ -112,23 +97,23 @@ class Environment:
         b = np.array([e.circle.x, e.circle.y])
         d = b - a
         d_norm = np.linalg.norm(d)
-        theta = np.arcsin(0.02 / d_norm)
+        theta = np.arcsin(self.circle.radius / d_norm)
         A = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
-        xa = np.dot(A, d) * np.sqrt(d_norm ** 2 - 0.02 ** 2) / d_norm
-        xb = np.dot(A.T, d) * np.sqrt(d_norm ** 2 - 0.02 ** 2) / d_norm
+        xa = np.dot(A, d) * np.sqrt(d_norm ** 2 - self.circle.radius ** 2) / d_norm
+        xb = np.dot(A.T, d) * np.sqrt(d_norm ** 2 - self.circle.radius ** 2) / d_norm
 
         fg = np.array([e.goal_x, e.goal_y])
         if np.linalg.norm(fg - b) < 0.0005:
             return np.zeros(2)
         pd = (fg - b) / np.linalg.norm(fg - b) # pushing direction
-        pg = b - pd * 0.02                     # pushing goal
+        pg = b - pd * self.circle.radius       # pushing goal
         e_dist = np.linalg.norm(xa)
         a_dist = np.linalg.norm(pg - a - xa)
         b_dist = np.linalg.norm(pg - a - xb)
         pg_dist = np.linalg.norm(a - pg)
         if pg_dist < 0.005:
             return min(self.max_dist, d_norm) * pd
-        if 0.002 < e_dist < pg_dist:
+        if 0.005 < e_dist < pg_dist:
             if a_dist < b_dist:
                 return min(self.max_dist, np.linalg.norm(xa)) * xa / np.linalg.norm(xa)
             else:
