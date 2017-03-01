@@ -98,7 +98,8 @@ class Critic(NN):
         self.adams = [Adam(lr=lr) for _ in params]
         
         y = T.fmatrix('Targets')
-        loss = 1.0 / y.shape[0] * ((y - y3) ** 2).sum()
+        weight_decay = 1e-2 * T.sum([(p ** 2).sum() for p in params])
+        loss = 1.0 / y.shape[0] * ((y - y3) ** 2).sum() + weight_decay
         gradients = T.grad(loss, wrt=params)
         self.gradients = theano.function([x, u, y], gradients, allow_input_downcast=True)
         
