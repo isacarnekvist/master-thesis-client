@@ -6,10 +6,10 @@ NEUTRAL = 2
 MAX_DIST = 0.01
 
 
-def create_state_vector(eef_x, eef_y, circle_x, circle_y, goal_x, goal_y):
-    return np.array([
-        [eef_x, eef_y, circle_x, circle_y, goal_x, goal_y]
-    ], dtype=np.float32)
+def random(a, b):
+    if b < a:
+        raise ValueError('b must be <= a')
+    return a + (b - a) * np.random.rand()
 
 
 class Circle:
@@ -17,7 +17,7 @@ class Circle:
     def __init__(self, x, y):
         self.x = x
         self.y = y
-        self.radius = 0.02
+        self.radius = 0.03
         
     def interact(self, x, y):
         theta = np.arctan2(y - self.y, x - self.x)
@@ -47,33 +47,40 @@ class Circle:
         
 class Environment:
     
-    def __init__(self, max_dist):
+    def __init__(self, max_dist, mode):
+        self.mode = mode.lower()
+        if self.mode == 'reaching-fixed-goal':
+            pass
+        elif self.mode == 'reaching-moving-goal':
+            raise NotImplementedError
+        elif self.mode == 'pushing-fixed-goal':
+            raise NotImplementedError
+        elif self.mode == 'pushing-moving-goal':
+            raise NotImplementedError
+        else:
+            raise ValueError('Not a valid mode string')
+        self.min_x, self.max_x = (-0.15, 0.15)
+        self.min_y, self.max_y = (0.10, 0.30)
         self.max_dist = max_dist
         self.reset()
     
     def reset(self):
-        # Random on inner and outer circle
-        circle_x = 0.20 * np.random.rand() - 0.10
-        circle_y = 0.10 * np.random.rand() + 0.16
+        self.circle = Circle(0.0, 0.2)
+        if self.mode == 'reaching-fixed-goal':
+            self.reset_reaching_fixed_goal()
+
+    def reset_reaching_fixed_goal(self):
         self.goal_x = 0.00
-        self.goal_y = 0.22
-        self.circle = Circle(circle_x, circle_y)
-        eef_theta = np.random.rand() * 2 * np.pi
-        self.eef_x = circle_x
-        self.eef_y = circle_y
-        while np.linalg.norm([self.eef_x - circle_x, self.eef_y - circle_y]) < 0.03:
-            self.eef_x = 0.20 * np.random.rand() - 0.10
-            self.eef_y = 0.10 * np.random.rand() + 0.16
+        self.goal_y = 0.20
+        self.eef_x = random(self.min_x, self.max_x)
+        self.eef_y = random(self.min_y, self.max_y)
 
     def get_state(self):
-        return create_state_vector(
-            self.eef_x,
-            self.eef_y,
-            self.circle.x,
-            self.circle.y,
-            self.goal_x,
-            self.goal_y,
-        )
+        if self.mode == 'reaching-fixed-goal':
+            return np.array([[
+                self.eef_x,
+                self.eef_y,
+            ]])
 
     def interact(self, dx, dy):
         dist = np.linalg.norm([dx, dy])
@@ -82,27 +89,37 @@ class Environment:
             dy = self.max_dist * dy / dist
         self.eef_x += dx
         self.eef_y += dy
-        self.circle.interact(self.eef_x, self.eef_y)
+        if self.mode.startswith('pushing'):
+            self.circle.interact(self.eef_x, self.eef_y)
+
         state = NEUTRAL
         reward = -4
-        if not -0.15 <= self.eef_x <= 0.15:
+        if not self.min_x <= self.eef_x <= self.max_x:
             state = LOSE
-        elif not 0.10 <= self.eef_y <= 0.30:
+        elif not self.min_y <= self.eef_y <= self.max_y:
             state = LOSE
-        elif not -0.15 <= self.circle.x <= 0.15:
+        elif not self.min_x <= self.circle.x <= self.max_x:
             state = LOSE
-        elif not 0.10 <= self.circle.y <= 0.30:
+        elif not self.min_y <= self.circle.y <= self.max_y:
             state = LOSE
-        elif np.linalg.norm([self.goal_x - self.circle.x, self.goal_y - self.circle.y]) < 0.005:
+        elif self.mode.startswith('pushing') and np.linalg.norm([self.goal_x - self.circle.x, self.goal_y - self.circle.y]) < 0.005:
+            state = WIN
+        elif self.mode.startswith('reaching') and np.linalg.norm([self.goal_x - self.eef_x, self.goal_y - self.eef_x]) < 0.005:
             state = WIN
             
         if state != LOSE:
             eef2circle = np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y])
             circle2goal = np.linalg.norm([self.goal_x - self.circle.x, self.goal_y - self.circle.y])
-            reward = (
-                np.exp(-200 * eef2circle ** 2) - 1 +
-                2 * (np.exp(-200 * circle2goal ** 2) - 1)
-            )
+            eef2goal = np.linalg.norm([self.goal_x - self.eef_x, self.goal_y - self.eef_y])
+            if self.mode.startswith('pushing'):
+                reward = (
+                    np.exp(-200 * eef2circle ** 2) - 1 +
+                    2 * (np.exp(-200 * circle2goal ** 2) - 1)
+                )
+            else:
+                reward = (
+                    np.exp(-200 * eef2goal ** 2) - 1
+                )
         
         return state, reward, self.get_state()
     
@@ -141,23 +158,35 @@ class Environment:
         import matplotlib.pyplot as plt
         if ax is None:
             _, ax = plt.subplots()
-        plt.grid()
-        ax.add_artist(plt.Circle(
-            (self.goal_x, self.goal_y),
-            self.circle.radius,
-            color='k',
-        ))
-        ax.add_artist(plt.Circle(
-            (self.goal_x, self.goal_y),
-            self.circle.radius - 0.001,
-            color='w',
-        ))
-        ax.add_artist(plt.Circle(
-            (self.circle.x, self.circle.y),
-            self.circle.radius,
-            color='r',
-            alpha=0.5
-        ))
-        plt.plot(self.eef_x, self.eef_y, 'k+', markersize=10)
-        plt.xlim((-0.15, 0.15))
-        plt.ylim((0.10, 0.30))
+        ax.grid()
+        if self.mode.startswith('pushing'):
+            ax.add_artist(plt.Circle(
+                (self.goal_x, self.goal_y),
+                self.circle.radius,
+                color='k',
+            ))
+            ax.add_artist(plt.Circle(
+                (self.goal_x, self.goal_y),
+                self.circle.radius - 0.001,
+                color='w',
+            ))
+            ax.add_artist(plt.Circle(
+                (self.circle.x, self.circle.y),
+                self.circle.radius,
+                color='r',
+                alpha=0.5
+            ))
+        else:
+            ax.add_artist(plt.Circle(
+                (self.goal_x, self.goal_y),
+                0.005,
+                color='k',
+            ))
+            ax.add_artist(plt.Circle(
+                (self.goal_x, self.goal_y),
+                0.004,
+                color='w',
+            ))
+        ax.plot(self.eef_x, self.eef_y, 'k+', markersize=10)
+        ax.set_xlim((self.min_x, self.max_x))
+        ax.set_ylim((self.min_y, self.max_y))
