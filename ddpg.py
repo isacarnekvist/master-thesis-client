@@ -5,6 +5,7 @@ Theano implementation of Deep Deterministic Policy Gradient (DDPG) [1]
 learning." arXiv preprint arXiv:1509.02971 (2015).
 """
 
+import json
 import theano
 import numpy as np
 import theano.tensor as T
@@ -42,6 +43,16 @@ class NN:
 
     def clone_params(self, nn_other):
         self.soft_update(nn_other, tau=1.0)
+
+    def load_params(self, filename):
+        with open(filename, 'r') as f:
+            params_list = json.loads(f.read())
+        [p.set_value(p_saved) for p, p_saved in zip(self.params, params_list)]
+
+    def save_params(self, filename):
+        params_list = [p.get_value().tolist() for p in self.params]
+        with open(filename, 'w') as f:
+            f.write(json.dumps(params_list))
 
 
 class Critic(NN):
