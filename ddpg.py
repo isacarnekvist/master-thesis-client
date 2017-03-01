@@ -57,71 +57,60 @@ class NN:
 
 class Critic(NN):
     
-    def __init__(self, x_size, u_size, batch_size=64, hidden_sizes=(400, 300), lr=1e-3):
+    def construct_q(self, x, u):
+        a1 = T.dot(x, self.fc1_w) + self.fc1_b
+        y1 = T.horizontal_stack(T.nnet.relu(a1), u)
+        a2 = T.dot(y1, self.fc2_w) + self.fc2_b
+        y2 = T.nnet.relu(a2)
+        return T.dot(y2, self.fc3_w) + self.fc3_b
+
+    def __init__(self, x_size, u_size, hidden_sizes=(400, 300), lr=1e-3):
         """Critic network in Deep Deterministic Policy Gradient (DDPG)
         x_size : int
             state space dimensionality
         u_size : int
             action space dimensionality
-        batch_size : int, optional
-            default is 64
         hidden_sizes : (int, int), optional
             sizes of the two hidden layers, default is (400, 300)
         lr : float, optional
             default is 1e-3
         """
-        self.batch_size = batch_size
-
+        # Inputs
         x = T.fmatrix('State')
-        self.x = x
-
-        fc1_w = theano.shared(
-            2 / np.sqrt(x_size) * (np.random.rand(x_size, hidden_sizes[0]) - 0.5)
-        )
-        fc1_b = theano.shared(
-            np.zeros(hidden_sizes[0])
-        )
-        
         u = T.fmatrix('Controls')
 
-        a1 = T.dot(x, fc1_w) + fc1_b
-        y1 = T.horizontal_stack(T.nnet.relu(a1), u)
-
-        fc2_w = theano.shared(
+        # Shared parameters
+        self.fc1_w = theano.shared(
+            2 / np.sqrt(x_size) * (np.random.rand(x_size, hidden_sizes[0]) - 0.5)
+        )
+        self.fc1_b = theano.shared(
+            np.zeros(hidden_sizes[0])
+        )
+        self.fc2_w = theano.shared(
             2 / np.sqrt(hidden_sizes[0]) * (np.random.rand(hidden_sizes[0] + u_size, hidden_sizes[1]) - 0.5)
         )
-        fc2_b = theano.shared(
+        self.fc2_b = theano.shared(
             np.zeros(hidden_sizes[1])
         )
-        a2 = T.dot(y1, fc2_w) + fc2_b
-        y2 = T.nnet.relu(a2)
-
-        fc3_w = theano.shared(
+        self.fc3_w = theano.shared(
             6 * 1e-3 * (np.random.rand(hidden_sizes[1], 1) - 0.5)
         )
-        fc3_b = theano.shared(
+        self.fc3_b = theano.shared(
             np.zeros(1)
         )
-        y3 = T.dot(y2, fc3_w) + fc3_b
-
-        params = [fc1_w, fc1_b, fc2_w, fc2_b, fc3_w, fc3_b]
+        params = [self.fc1_w, self.fc1_b, self.fc2_w, self.fc2_b, self.fc3_w, self.fc3_b]
         self.params = params
         self.adams = [Adam(lr=lr) for _ in params]
         
+        self.q = self.construct_q(x, u)
+        
         y = T.fmatrix('Targets')
         weight_decay = 1e-2 * T.sum([(p ** 2).sum() for p in params])
-        loss = 1.0 / y.shape[0] * ((y - y3) ** 2).sum() + weight_decay
+        loss = 1.0 / y.shape[0] * ((y - self.q) ** 2).sum() + weight_decay
         gradients = T.grad(loss, wrt=params)
         self.gradients = theano.function([x, u, y], gradients, allow_input_downcast=True)
         
-        gradients_du = T.zeros((batch_size, 1, u_size))
-        for sample in range(batch_size):
-            gradients_du = T.set_subtensor(
-                gradients_du[sample, 0, :],
-                T.grad(y3[sample, 0], wrt=u)[sample, :]
-            )
-        self.gradients_du = theano.function([x, u], gradients_du, allow_input_downcast=True)
-        self.predict = theano.function([x, u], y3, allow_input_downcast=True)
+        self.predict = theano.function([x, u], self.q, allow_input_downcast=True)
         
     def fit(self, X, U, Y):
         for adam, param, gradient in zip(self.adams, self.params, self.gradients(X, U, Y)):
@@ -130,12 +119,10 @@ class Critic(NN):
 
 class Actor(NN):
     
-    def __init__(self, x_size, u_size, batch_size=64, hidden_sizes=(400, 300), output_scaling=1.00, lr=1e-4):
+    def __init__(self, x_size, u_size, critic, hidden_sizes=(400, 300), output_scaling=1.00, lr=1e-4):
         """Actor network in Deep Deterministic Policy Gradient (DDPG)
         """
-        self.batch_size = batch_size
         x = T.fmatrix('State')
-        self.x = x
 
         fc1_w = theano.shared(
             2 / np.sqrt(x_size) * (np.random.rand(x_size, hidden_sizes[0]) - 0.5)
@@ -163,37 +150,26 @@ class Actor(NN):
             np.zeros(u_size)
         )
         a3 = T.dot(y2, fc3_w) + fc3_b
-        y3 = output_scaling * T.tanh(a3)
+        u = output_scaling * T.tanh(a3)
 
         params = [fc1_w, fc1_b, fc2_w, fc2_b, fc3_w, fc3_b]
         self.params = params
-        self.adam = Adam(lr=lr)
-        self.n_params_all = [p.flatten().shape.eval()[0] for p in params]
-        self.params_shapes = [p.shape.eval() for p in params]
-        n_params = sum(self.n_params_all)
-        gradients = T.zeros((batch_size, u_size, n_params))
-        for sample in range(batch_size):
-            for dim in range(u_size):
-                grads = []
-                for i, grad in enumerate(T.grad(y3[sample, dim], wrt=params)):
-                    grads.append(grad.reshape((1, self.n_params_all[i])))
-                gradients = T.set_subtensor(
-                    gradients[sample, dim, :],
-                    T.horizontal_stack(*grads).flatten()
-                )
-        self.gradients = theano.function([x], gradients, allow_input_downcast=True)
-        self.predict = theano.function([x], y3, allow_input_downcast=True)
+        self.adams = [Adam(lr=lr) for _ in params]
         
-    def fit(self, X, U, critic, sample_weight=None):
-        dc = critic.gradients_du(X, U)
-        da = self.gradients(X)
-        if sample_weight is not None:
-            grad_all = np.matmul(dc, da)
-            grad = self.adam.get_update(grad_all.sum(axis=0))
+        self.q = critic.construct_q(x, u)
+        
+        sample_weights = T.fmatrix('sample_weights')
+        loss = -(self.q * sample_weights).sum()
+        gradients = T.grad(loss, wrt=params)
+        
+        self.gradients = theano.function([x, sample_weights], gradients, allow_input_downcast=True)
+        self.predict = theano.function([x], u, allow_input_downcast=True)
+        
+    def fit(self, X, sample_weight=None):
+        if sample_weight is None:
+            sample_weight = np.ones((X.shape[0], 1))
         else:
-            grad = self.adam.get_update(np.matmul(dc, da).sum(axis=0))
-        ind = 0
-        for n_params, shape, param in zip(self.n_params_all, self.params_shapes, self.params):
-            update = grad[0, ind:ind + n_params].reshape(shape)
-            param.set_value(param.get_value() - update)
-            ind += n_params
+            sample_weight = np.array([sample_weight]).T
+        for param, grad, adam in zip(self.params, self.gradients(X, sample_weight), self.adams):
+            update = adam.get_update(grad)
+            param.set_value(param.get_value() + update)
