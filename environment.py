@@ -20,13 +20,13 @@ class Circle:
         self.radius = 0.03
         
     def interact(self, x, y):
-        theta = np.arctan2(y - self.y, x - self.x)
+        theta = np.arctan2(self.y - y, self.x - x)
         center_distance = np.linalg.norm([self.y - y, self.x - x])
         distance = self.radius - center_distance
         if center_distance > self.radius:
             return
-        self.x -= distance * np.cos(theta)
-        self.y -= distance * np.sin(theta)
+        self.x += distance * np.cos(theta)
+        self.y += distance * np.sin(theta)
 
     @property
     def x(self):
@@ -54,7 +54,7 @@ class Environment:
         elif self.mode == 'reaching-moving-goal':
             raise NotImplementedError
         elif self.mode == 'pushing-fixed-goal':
-            raise NotImplementedError
+            pass
         elif self.mode == 'pushing-moving-goal':
             raise NotImplementedError
         else:
@@ -68,6 +68,8 @@ class Environment:
         self.circle = Circle(0.0, 0.2)
         if self.mode == 'reaching-fixed-goal':
             self.reset_reaching_fixed_goal()
+        elif self.mode == 'pushing-fixed-goal':
+            self.reset_pushing_fixed_goal()
 
     def reset_reaching_fixed_goal(self):
         self.goal_x = 0.00
@@ -75,11 +77,30 @@ class Environment:
         self.eef_x = random(self.min_x, self.max_x)
         self.eef_y = random(self.min_y, self.max_y)
 
+    def reset_pushing_fixed_goal(self):
+        self.goal_x = 0.00
+        self.goal_y = 0.20
+        self.eef_x = random(self.min_x, self.max_x)
+        self.eef_y = random(self.min_y, self.max_y)
+        circle_x = random(self.min_x + self.circle.radius, self.max_x - self.circle.radius)
+        circle_y = random(self.min_y + self.circle.radius, self.max_y - self.circle.radius)
+        self.circle = Circle(circle_x, circle_y)
+        while np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y]) < self.circle.radius:
+            self.circle.x = random(self.min_x, self.max_x)
+            self.circle.y = random(self.min_y, self.max_y)
+
     def get_state(self):
         if self.mode == 'reaching-fixed-goal':
             return np.array([[
                 self.eef_x,
                 self.eef_y,
+            ]])
+        elif self.mode == 'pushing-fixed-goal':
+            return np.array([[
+                self.eef_x,
+                self.eef_y,
+                self.circle.x,
+                self.circle.y,
             ]])
 
     def interact(self, dx, dy):
@@ -113,8 +134,8 @@ class Environment:
             eef2goal = np.linalg.norm([self.goal_x - self.eef_x, self.goal_y - self.eef_y])
             if self.mode.startswith('pushing'):
                 reward = (
-                    np.exp(-200 * eef2circle ** 2) - 1 +
-                    2 * (np.exp(-200 * circle2goal ** 2) - 1)
+                    0.01 * (np.exp(-200 * eef2circle ** 2) - 1) +
+                    (np.exp(-200 * circle2goal ** 2) - 1)
                 )
             else:
                 reward = (
@@ -129,10 +150,10 @@ class Environment:
         b = np.array([e.circle.x, e.circle.y])
         d = b - a
         d_norm = np.linalg.norm(d)
-        theta = np.arcsin(0.02 / d_norm)
+        theta = np.arcsin(self.circle.radius / d_norm)
         A = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
-        xa = np.dot(A, d) * np.sqrt(d_norm ** 2 - 0.02 ** 2) / d_norm
-        xb = np.dot(A.T, d) * np.sqrt(d_norm ** 2 - 0.02 ** 2) / d_norm
+        xa = np.dot(A, d) * np.sqrt(d_norm ** 2 - self.circle.radius ** 2) / d_norm
+        xb = np.dot(A.T, d) * np.sqrt(d_norm ** 2 - self.circle.radius ** 2) / d_norm
 
         fg = np.array([e.goal_x, e.goal_y])
         if np.linalg.norm(fg - b) < 0.0005:
@@ -157,7 +178,7 @@ class Environment:
     def plot(self, ax=None):
         import matplotlib.pyplot as plt
         if ax is None:
-            _, ax = plt.subplots()
+            fig, ax = plt.subplots()
         ax.grid()
         if self.mode.startswith('pushing'):
             ax.add_artist(plt.Circle(
