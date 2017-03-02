@@ -105,15 +105,20 @@ class Critic(NN):
         self.q = self.construct_q(x, u)
         
         y = T.fmatrix('Targets')
+        sample_weights = T.fmatrix('sample_weights')
         weight_decay = 1e-2 * T.sum([(p ** 2).sum() for p in params])
-        loss = 1.0 / y.shape[0] * ((y - self.q) ** 2).sum() + weight_decay
+        loss = 1.0 / y.shape[0] * ((y - self.q) ** 2 * sample_weights).sum() + weight_decay
         gradients = T.grad(loss, wrt=params)
-        self.gradients = theano.function([x, u, y], gradients, allow_input_downcast=True)
+        self.gradients = theano.function([x, u, y, sample_weights], gradients, allow_input_downcast=True)
         
         self.predict = theano.function([x, u], self.q, allow_input_downcast=True)
         
-    def fit(self, X, U, Y):
-        for adam, param, gradient in zip(self.adams, self.params, self.gradients(X, U, Y)):
+    def fit(self, X, U, Y, sample_weight=None):
+        if sample_weight is None:
+            sample_weight = np.ones((X.shape[0], 1))
+        else:
+            sample_weight = np.array([sample_weight]).T
+        for adam, param, gradient in zip(self.adams, self.params, self.gradients(X, U, Y, sample_weight)):
             param.set_value(param.get_value() + adam.get_update(gradient))
 
 
@@ -159,7 +164,8 @@ class Actor(NN):
         self.q = critic.construct_q(x, u)
         
         sample_weights = T.fmatrix('sample_weights')
-        loss = -(self.q * sample_weights).sum()
+        weight_decay = 1e-2 * T.sum([(p ** 2).sum() for p in params])
+        loss = -(self.q * sample_weights).sum() + weight_decay
         gradients = T.grad(loss, wrt=params)
         
         self.gradients = theano.function([x, sample_weights], gradients, allow_input_downcast=True)
