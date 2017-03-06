@@ -25,24 +25,8 @@ class Circle:
         distance = self.radius - center_distance
         if center_distance > self.radius:
             return
-        self.x += distance * np.cos(theta)
-        self.y += distance * np.sin(theta)
-
-    @property
-    def x(self):
-        return self._x
-
-    @x.setter
-    def x(self, value):
-        self._x = np.round(value, 2)
-
-    @property
-    def y(self):
-        return self._y
-        
-    @y.setter
-    def y(self, value):
-        self._y = np.round(value, 2)
+        self.x = self.x + distance * np.cos(theta)
+        self.y = self.y + distance * np.sin(theta)
 
         
 class Environment:
@@ -52,8 +36,10 @@ class Environment:
         if self.mode == 'reaching-fixed-goal':
             pass
         elif self.mode == 'reaching-moving-goal':
-            raise NotImplementedError
+            pass
         elif self.mode == 'pushing-fixed-goal':
+            pass
+        elif self.mode == 'pushing-fixed-cube':
             pass
         elif self.mode == 'pushing-moving-goal':
             raise NotImplementedError
@@ -68,14 +54,33 @@ class Environment:
         self.circle = Circle(0.0, 0.2)
         if self.mode == 'reaching-fixed-goal':
             self.reset_reaching_fixed_goal()
+        if self.mode == 'reaching-moving-goal':
+            self.reset_reaching_moving_goal()
         elif self.mode == 'pushing-fixed-goal':
             self.reset_pushing_fixed_goal()
+        elif self.mode == 'pushing-fixed-cube':
+            self.reset_pushing_fixed_cube()
 
     def reset_reaching_fixed_goal(self):
         self.goal_x = 0.00
         self.goal_y = 0.20
         self.eef_x = random(self.min_x, self.max_x)
         self.eef_y = random(self.min_y, self.max_y)
+
+    def reset_reaching_moving_goal(self):
+        self.goal_x = random(self.min_x, self.max_x)
+        self.goal_y = random(self.min_y, self.max_y)
+        self.eef_x = random(self.min_x, self.max_x)
+        self.eef_y = random(self.min_y, self.max_y)
+
+    def reset_pushing_fixed_cube(self):
+        self.eef_x = float(-0.08 + np.random.randn() * 0.01)
+        self.eef_y = float(0.20 + np.random.randn() * 0.02)
+        circle_x = float(0.00 + np.random.randn() * 0.01)
+        circle_y = float(0.20 + np.random.randn() * 0.01)
+        self.circle = Circle(circle_x, circle_y)
+        self.goal_x = 0.06
+        self.goal_y = 0.20
 
     def reset_pushing_fixed_goal(self):
         self.goal_x = 0.00
@@ -95,7 +100,21 @@ class Environment:
                 self.eef_x,
                 self.eef_y,
             ]])
+        if self.mode == 'reaching-moving-goal':
+            return np.array([[
+                self.eef_x,
+                self.eef_y,
+                self.goal_x,
+                self.goal_y,
+            ]])
         elif self.mode == 'pushing-fixed-goal':
+            return np.array([[
+                self.eef_x,
+                self.eef_y,
+                self.circle.x,
+                self.circle.y,
+            ]])
+        elif self.mode == 'pushing-fixed-cube':
             return np.array([[
                 self.eef_x,
                 self.eef_y,
@@ -114,7 +133,7 @@ class Environment:
             self.circle.interact(self.eef_x, self.eef_y)
 
         state = NEUTRAL
-        reward = -4
+        reward = -2
         if not self.min_x <= self.eef_x <= self.max_x:
             state = LOSE
         elif not self.min_y <= self.eef_y <= self.max_y:
@@ -134,7 +153,7 @@ class Environment:
             eef2goal = np.linalg.norm([self.goal_x - self.eef_x, self.goal_y - self.eef_y])
             if self.mode.startswith('pushing'):
                 reward = (
-                    0.01 * (np.exp(-200 * eef2circle ** 2) - 1) +
+                    (np.exp(-200 * eef2circle ** 2) - 1) +
                     (np.exp(-200 * circle2goal ** 2) - 1)
                 )
             else:
