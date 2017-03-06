@@ -1,3 +1,5 @@
+import json
+
 import theano
 import numpy as np
 import theano.tensor as T
@@ -5,10 +7,10 @@ import theano.tensor as T
 
 class Adam:
     
-    def __init__(self, lr=0.001):
+    def __init__(self, lr=0.001, beta1=0.9, beta2=0.999):
         self.alpha = lr
-        self.beta1 = 0.9
-        self.beta2 = 0.999
+        self.beta1 = beta1
+        self.beta2 = beta2
         self.epsilon = 1e-8
         self.t = 0
         
@@ -37,10 +39,20 @@ class A3C:
         for param, grad, adam in zip(self.params, gradients, self.adams):
             param.set_value(param.get_value() + adam.get_update(grad))
 
+    def load_params(self, filename):
+        with open(filename, 'r') as f:
+            params_list = json.loads(f.read())
+        [p.set_value(p_saved) for p, p_saved in zip(self.params, params_list)]
+
+    def save_params(self, filename):
+        params_list = [p.get_value().tolist() for p in self.params]
+        with open(filename, 'w') as f:
+            f.write(json.dumps(params_list))
+
 
 class Actor(A3C):
     
-    def __init__(self, x_size, u_size=2, hidden_size=100, mu_scaling=0.01):
+    def __init__(self, x_size, u_size=2, hidden_size=200, mu_scaling=0.01, adam_beta1=0.0, adam_beta2=0.999):
         x = T.fmatrix('state')
         fc1_w = theano.shared(
             2 / np.sqrt(x_size) * (np.random.rand(x_size, hidden_size) - 0.5)
@@ -49,6 +61,14 @@ class Actor(A3C):
             np.zeros(hidden_size)
         )
         y1 = T.nnet.relu(x.dot(fc1_w) + fc1_b)
+
+        fc2_w = theano.shared(
+            2 / np.sqrt(hidden_size) * (np.random.rand(hidden_size, hidden_size) - 0.5)
+        )
+        fc2_b = theano.shared(
+            np.zeros(hidden_size)
+        )
+        y2 = T.nnet.relu(y1.dot(fc2_w) + fc2_b)
         
         mu_w = theano.shared(
             6 * 1e-3 * (np.random.rand(hidden_size, u_size) - 0.5)
@@ -56,7 +76,7 @@ class Actor(A3C):
         mu_b = theano.shared(
             np.zeros(u_size)
         )
-        mu = mu_scaling * T.tanh(y1.dot(mu_w) + mu_b)
+        mu = mu_scaling * T.tanh(y2.dot(mu_w) + mu_b)
         
         sigma_w = theano.shared(
             (np.random.rand(hidden_size, u_size) - 0.5)
@@ -75,13 +95,13 @@ class Actor(A3C):
                 ((mu - u) ** 2 / sigma).sum(axis=1, keepdims=True)
             )
         )
-        self.params = [fc1_w, fc1_b, mu_w, mu_b, sigma_w, sigma_b]
-        self.adams = [Adam(lr=1e-4) for _ in self.params]
+        self.params = [fc1_w, fc1_b, fc2_w, fc2_b, mu_w, mu_b, sigma_w, sigma_b]
+        self.adams = [Adam(lr=1e-4, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
 
         v = T.fmatrix('value_targets')
         r = T.fmatrix('return_targets')
         beta = 1e-4
-        loss = (-log_probability_of_u * (r - v) + beta * T.log(det)).sum()
+        loss = (-log_probability_of_u * (r - v) - beta * T.log(det)).sum()
         self.loss = theano.function([x, u, r, v], loss, allow_input_downcast=True)
         self.gradients = theano.function(
             [x, u, r, v],
@@ -92,7 +112,7 @@ class Actor(A3C):
         
 class Critic(A3C):
     
-    def __init__(self, x_size, u_size=2, hidden_size=100):
+    def __init__(self, x_size, u_size=2, hidden_size=100, adam_beta1=0.0, adam_beta2=0.999):
         x = T.fmatrix('state')
         
         fc1_w = theano.shared(
@@ -102,6 +122,14 @@ class Critic(A3C):
             np.zeros(hidden_size)
         )
         y1 = T.nnet.relu(x.dot(fc1_w) + fc1_b)
+
+        fc2_w = theano.shared(
+            2 / np.sqrt(hidden_size) * (np.random.rand(hidden_size, hidden_size) - 0.5)
+        )
+        fc2_b = theano.shared(
+            np.zeros(hidden_size)
+        )
+        y2 = T.nnet.relu(y1.dot(fc2_w) + fc2_b)
         
         v_w = theano.shared(
             2 / np.sqrt(hidden_size) * (np.random.rand(hidden_size, 1) - 0.5)
@@ -109,11 +137,11 @@ class Critic(A3C):
         v_b = theano.shared(
             np.zeros(1)
         )
-        v = y1.dot(v_w) + v_b
+        v = y2.dot(v_w) + v_b
         self.predict = theano.function([x], v, allow_input_downcast=True)
         
-        self.params = [fc1_w, fc1_b, v_w, v_b]
-        self.adams = [Adam(lr=1e-4) for _ in self.params]
+        self.params = [fc1_w, fc1_b, fc2_w, fc2_b, v_w, v_b]
+        self.adams = [Adam(lr=1e-4, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
         
         r = T.fmatrix('return_targets')
         loss = ((r - v) ** 2).sum()
