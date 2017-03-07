@@ -113,6 +113,7 @@ class Actor(A3C):
 class ActorMM(A3C):
     
     def __init__(self, x_size, n_modes, u_size=2, hidden_size=200, mu_scaling=0.01, adam_beta1=0.0, adam_beta2=0.999):
+        self.n_modes = n_modes
         x = T.fmatrix('state')
         fc1_w = theano.shared(
             2 / np.sqrt(x_size) * (np.random.rand(x_size, hidden_size) - 0.5)
@@ -160,11 +161,11 @@ class ActorMM(A3C):
             sigma_b = theano.shared(
                 -5.0 * np.ones(u_size)
             )
-            sigma = mu_scaling * T.nnet.softplus((y1.dot(sigma_w) + sigma_b))
+            sigma = mu_scaling ** 2 * T.nnet.sigmoid((y1.dot(sigma_w) + sigma_b))
             sigmas.append(sigma)
             self.params.extend([mu_w, mu_b, sigma_w, sigma_b])
 
-        self.predict = theano.function([x], [mw_y] + mus + sigmas, allow_input_downcast=True)
+        self._predict = theano.function([x], [mw_y] + mus + sigmas, allow_input_downcast=True)
 
         u = T.fmatrix('actions')
         mixture_probs = T.zeros((u.shape[0], n_modes))
@@ -174,7 +175,7 @@ class ActorMM(A3C):
             exp_arg = -0.5 * (d * d / sigmas[n]).sum(axis=1)
             mixture_probs = T.set_subtensor(
                 mixture_probs[:, n],
-                T.log(mw[:, n]) - np.log(2 * np.pi) + log_det + exp_arg
+                T.log(mw_y[:, n]) - np.log(2 * np.pi) + log_det + exp_arg
             )
         tot_log_prob = T.log(T.exp(mixture_probs).sum(axis=1, keepdims=True))
         self.mp = theano.function([x, u], tot_log_prob, allow_input_downcast=True)
@@ -188,13 +189,21 @@ class ActorMM(A3C):
         r = T.fmatrix('return_targets')
         beta = 1e-4
         #loss = (-log_probability_of_u * (r - v) - beta * T.log(det)).sum()
-        loss = -(tot_log_prob * (r - v)).sum()
+        loss = (-tot_log_prob * (r - v) - T.log((mus[0] - mus[1]) ** 2) - T.log(mw_y)).sum()
         self.loss = theano.function([x, u, r, v], loss, allow_input_downcast=True)
         self.gradients = theano.function(
             [x, u, r, v],
             T.grad(loss, wrt=self.params),
             allow_input_downcast=True
         )
+
+    def predict(self, x):
+        p = self._predict(x)
+        mw = p[0][:, 0]
+        mode = np.argmax(np.random.multinomial(1, mw))
+        mu = p[1 + mode][0, :]
+        sigma = np.diag(p[1 + self.n_modes + mode][0, :])
+        return np.random.multivariate_normal(mean=mu, cov=sigma)
 
 
 class Critic(A3C):
@@ -231,6 +240,7 @@ class Critic(A3C):
         self.adams = [Adam(lr=1e-5, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
         
         r = T.fmatrix('return_targets')
-        loss = ((r - v) ** 2).sum()
+        loss = ((r - v) ** 2).sum() / r.shape[0]
+        self.loss = theano.function([x, r], loss, allow_input_downcast=True)
         gradients = T.grad(loss, wrt=self.params)
         self.gradients = theano.function([x, r], gradients, allow_input_downcast=True)

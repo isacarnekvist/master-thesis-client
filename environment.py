@@ -42,7 +42,7 @@ class Environment:
         elif self.mode == 'pushing-fixed-cube':
             pass
         elif self.mode == 'pushing-moving-goal':
-            raise NotImplementedError
+            pass
         else:
             raise ValueError('Not a valid mode string')
         self.min_x, self.max_x = (-0.15, 0.15)
@@ -60,6 +60,9 @@ class Environment:
             self.reset_pushing_fixed_goal()
         elif self.mode == 'pushing-fixed-cube':
             self.reset_pushing_fixed_cube()
+        elif self.mode == 'pushing-moving-goal':
+            self.reset_pushing_moving_goal()
+        return self.get_state()
 
     def reset_reaching_fixed_goal(self):
         self.goal_x = 0.00
@@ -78,13 +81,12 @@ class Environment:
         circle_y = 0.20 + np.random.randn() * 0.01
         self.circle = Circle(circle_x, circle_y)
         theta = 2 * np.pi * np.random.rand()
-        self.eef_x = circle_x + self.circle.radius * np.cos(theta)
-        self.eef_y = circle_y + self.circle.radius * np.sin(theta)
         self.goal_x = 0.06
         self.goal_y = 0.20
-        #while np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y]) < self.circle.radius:
-        #    self.eef_x = random(self.min_x, self.max_x)
-        #    self.eef_y = random(self.min_y, self.max_y)
+        self.eef_x, self.eef_y = circle_x, circle_y
+        while np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y]) < self.circle.radius:
+            self.eef_x = random(self.min_x, self.max_x)
+            self.eef_y = random(self.min_y, self.max_y)
 
     def reset_pushing_fixed_goal(self):
         self.goal_x = 0.00
@@ -97,36 +99,58 @@ class Environment:
         while np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y]) < self.circle.radius:
             self.circle.x = random(self.min_x, self.max_x)
             self.circle.y = random(self.min_y, self.max_y)
+            
+    def reset_pushing_moving_goal(self):
+        self.goal_x = random(self.min_x + self.circle.radius, self.max_x - self.circle.radius)
+        self.goal_y = random(self.min_y + self.circle.radius, self.max_y - self.circle.radius)
+        self.eef_x = random(self.min_x, self.max_x)
+        self.eef_y = random(self.min_y, self.max_y)
+        circle_x = random(self.min_x + 2 * self.circle.radius, self.max_x - 2 * self.circle.radius)
+        circle_y = random(self.min_y + 2 * self.circle.radius, self.max_y - 2 * self.circle.radius)
+        self.circle = Circle(circle_x, circle_y)
+        while np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y]) < self.circle.radius:
+            self.circle.x = random(self.min_x, self.max_x)
+            self.circle.y = random(self.min_y, self.max_y)
 
     def get_state(self):
         if self.mode == 'reaching-fixed-goal':
-            return np.array([[
+            return np.array([
                 self.eef_x,
                 self.eef_y,
-            ]])
+            ])
         if self.mode == 'reaching-moving-goal':
-            return np.array([[
+            return np.array([
                 self.eef_x,
                 self.eef_y,
                 self.goal_x,
                 self.goal_y,
-            ]])
+            ])
         elif self.mode == 'pushing-fixed-goal':
-            return np.array([[
+            return np.array([
                 self.eef_x,
                 self.eef_y,
                 self.circle.x,
                 self.circle.y,
-            ]])
+            ])
         elif self.mode == 'pushing-fixed-cube':
-            return np.array([[
+            return np.array([
                 self.eef_x,
                 self.eef_y,
                 self.circle.x,
                 self.circle.y,
-            ]])
+            ])
+        elif self.mode == 'pushing-moving-goal':
+            return np.array([
+                self.eef_x,
+                self.eef_y,
+                self.circle.x,
+                self.circle.y,
+                self.goal_x,
+                self.goal_y,
+            ])
 
-    def interact(self, dx, dy):
+    def step(self, a):
+        dx, dy = a
         dist = np.linalg.norm([dx, dy])
         if dist > self.max_dist:
             dx = self.max_dist * dx / dist
@@ -137,7 +161,7 @@ class Environment:
             self.circle.interact(self.eef_x, self.eef_y)
 
         state = NEUTRAL
-        reward = -2
+        reward = -12
         if not self.min_x <= self.eef_x <= self.max_x:
             state = LOSE
         elif not self.min_y <= self.eef_y <= self.max_y:
@@ -157,47 +181,16 @@ class Environment:
             eef2goal = np.linalg.norm([self.goal_x - self.eef_x, self.goal_y - self.eef_y])
             if self.mode.startswith('pushing'):
                 reward = (
-                    #(np.exp(-200 * eef2circle ** 2) - 1) +
-                    (np.exp(-200 * circle2goal ** 2) - 1)
+                    (np.exp(-200 * eef2circle ** 2) - 1) +
+                    10 * (np.exp(-200 * circle2goal ** 2) - 1)
                 )
             else:
                 reward = (
                     np.exp(-200 * eef2goal ** 2) - 1
                 )
         
-        return state, reward, self.get_state()
+        return self.get_state(), reward, state in [LOSE, WIN], None
     
-    def heuristic_move(self):
-        e = self
-        a = np.array([e.eef_x, e.eef_y])
-        b = np.array([e.circle.x, e.circle.y])
-        d = b - a
-        d_norm = np.linalg.norm(d)
-        theta = np.arcsin(self.circle.radius / d_norm)
-        A = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
-        xa = np.dot(A, d) * np.sqrt(d_norm ** 2 - self.circle.radius ** 2) / d_norm
-        xb = np.dot(A.T, d) * np.sqrt(d_norm ** 2 - self.circle.radius ** 2) / d_norm
-
-        fg = np.array([e.goal_x, e.goal_y])
-        if np.linalg.norm(fg - b) < 0.005:
-            return np.zeros(2)
-        pd = (fg - b) / np.linalg.norm(fg - b) # pushing direction
-        pg = b - pd * 0.02                     # pushing goal
-        e_dist = np.linalg.norm(xa)
-        a_dist = np.linalg.norm(pg - a - xa)
-        b_dist = np.linalg.norm(pg - a - xb)
-        pg_dist = np.linalg.norm(a - pg)
-        if pg_dist < 0.005:
-            return min(self.max_dist, d_norm) * pd
-        if 0.002 < e_dist < pg_dist:
-            if a_dist < b_dist:
-                return min(self.max_dist, np.linalg.norm(xa)) * xa / np.linalg.norm(xa)
-            else:
-                return min(self.max_dist, np.linalg.norm(xb)) * xb / np.linalg.norm(xb)
-        else:
-            return min(self.max_dist, np.linalg.norm(pg - a)) * (pg - a) / np.linalg.norm(pg - a)
-
-
     def plot(self, ax=None):
         import matplotlib.pyplot as plt
         if ax is None:
@@ -234,3 +227,49 @@ class Environment:
         ax.plot(self.eef_x, self.eef_y, 'k+', markersize=10)
         ax.set_xlim((self.min_x, self.max_x))
         ax.set_ylim((self.min_y, self.max_y))
+
+    def heuristic_move(self):
+        def cap_sphere(v):
+            if np.linalg.norm(v) > self.max_dist:
+                return self.max_dist * v / np.linalg.norm(v)
+            else:
+                return v
+        #
+        #         h __
+        #         /    \
+        #       p(r c  )         a_norm^2 = d_norm^2 + r^2
+        #        \    /
+        #      d a--- p'
+        #
+        #    e          g
+        #  alpha
+        #
+        #
+        eps = 0.0005
+        e = np.array([self.eef_x, self.eef_y])
+        c = np.array([self.circle.x, self.circle.y])
+        g = np.array([self.goal_x, self.goal_y])
+        a = c - e
+        r_norm = self.circle.radius
+        h = c + r_norm * (c - g) / np.linalg.norm(c - g)
+        a_norm = np.linalg.norm(a)
+        d_norm = np.sqrt(max(0.0, a_norm ** 2 - r_norm ** 2))
+        alpha = np.arctan2(r_norm, d_norm)
+        rot_pos = np.array([[np.cos(alpha), -np.sin(alpha)], [ np.sin(alpha), np.cos(alpha)]])
+        rot_neg = np.array([[np.cos(alpha),  np.sin(alpha)], [-np.sin(alpha), np.cos(alpha)]])
+        pa = e + np.dot(rot_pos, a)
+        pb = e + np.dot(rot_neg, a)
+        if np.linalg.norm(pa - h) < np.linalg.norm(pb - h):
+            p = pa
+        else:
+            p = pb
+        if np.linalg.norm(c - g) < eps: # cube at goal
+            return np.zeros(2)
+        if np.linalg.norm(h - e) < eps: # at pushing position
+            return cap_sphere(min(np.linalg.norm(g - c), self.max_dist) * (g - c) / (np.linalg.norm(g - c) + eps))
+        if np.linalg.norm(e - h) < np.linalg.norm(e - p): # pushing position is closer than edge intercept
+            return cap_sphere(min(np.linalg.norm(h - e), self.max_dist) * (h - e) / (np.linalg.norm(h - e) + eps))
+        else:
+            return cap_sphere(
+                min(np.linalg.norm(p - e), self.max_dist) * (p - e) / (np.linalg.norm(p - e) + eps)
+            )
