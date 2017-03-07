@@ -74,13 +74,17 @@ class Environment:
         self.eef_y = random(self.min_y, self.max_y)
 
     def reset_pushing_fixed_cube(self):
-        self.eef_x = float(-0.08 + np.random.randn() * 0.01)
-        self.eef_y = float(0.20 + np.random.randn() * 0.02)
-        circle_x = float(0.00 + np.random.randn() * 0.01)
-        circle_y = float(0.20 + np.random.randn() * 0.01)
+        circle_x = 0.00 + np.random.randn() * 0.01
+        circle_y = 0.20 + np.random.randn() * 0.01
         self.circle = Circle(circle_x, circle_y)
+        theta = 2 * np.pi * np.random.rand()
+        self.eef_x = circle_x + self.circle.radius * np.cos(theta)
+        self.eef_y = circle_y + self.circle.radius * np.sin(theta)
         self.goal_x = 0.06
         self.goal_y = 0.20
+        #while np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y]) < self.circle.radius:
+        #    self.eef_x = random(self.min_x, self.max_x)
+        #    self.eef_y = random(self.min_y, self.max_y)
 
     def reset_pushing_fixed_goal(self):
         self.goal_x = 0.00
@@ -153,7 +157,7 @@ class Environment:
             eef2goal = np.linalg.norm([self.goal_x - self.eef_x, self.goal_y - self.eef_y])
             if self.mode.startswith('pushing'):
                 reward = (
-                    (np.exp(-200 * eef2circle ** 2) - 1) +
+                    #(np.exp(-200 * eef2circle ** 2) - 1) +
                     (np.exp(-200 * circle2goal ** 2) - 1)
                 )
             else:
@@ -175,7 +179,7 @@ class Environment:
         xb = np.dot(A.T, d) * np.sqrt(d_norm ** 2 - self.circle.radius ** 2) / d_norm
 
         fg = np.array([e.goal_x, e.goal_y])
-        if np.linalg.norm(fg - b) < 0.0005:
+        if np.linalg.norm(fg - b) < 0.005:
             return np.zeros(2)
         pd = (fg - b) / np.linalg.norm(fg - b) # pushing direction
         pg = b - pd * 0.02                     # pushing goal

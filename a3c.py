@@ -96,7 +96,7 @@ class Actor(A3C):
             )
         )
         self.params = [fc1_w, fc1_b, fc2_w, fc2_b, mu_w, mu_b, sigma_w, sigma_b]
-        self.adams = [Adam(lr=1e-4, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
+        self.adams = [Adam(lr=1e-5, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
 
         v = T.fmatrix('value_targets')
         r = T.fmatrix('return_targets')
@@ -109,10 +109,97 @@ class Actor(A3C):
             allow_input_downcast=True
         )
 
+
+class ActorMM(A3C):
+    
+    def __init__(self, x_size, n_modes, u_size=2, hidden_size=200, mu_scaling=0.01, adam_beta1=0.0, adam_beta2=0.999):
+        x = T.fmatrix('state')
+        fc1_w = theano.shared(
+            2 / np.sqrt(x_size) * (np.random.rand(x_size, hidden_size) - 0.5)
+        )
+        fc1_b = theano.shared(
+            np.zeros(hidden_size)
+        )
+        y1 = T.nnet.relu(x.dot(fc1_w) + fc1_b)
+
+        fc2_w = theano.shared(
+            2 / np.sqrt(hidden_size) * (np.random.rand(hidden_size, hidden_size) - 0.5)
+        )
+        fc2_b = theano.shared(
+            np.zeros(hidden_size)
+        )
+        y2 = T.nnet.relu(y1.dot(fc2_w) + fc2_b)
         
+        # mixture_weights
+        mw_w = theano.shared(
+            2 / np.sqrt(hidden_size) * (np.random.rand(hidden_size, n_modes) - 0.5)
+        )
+        mw_b = theano.shared(
+            np.zeros(n_modes)
+        )
+        mw_y = T.nnet.nnet.softmax(y2.dot(mw_w) + mw_b)
+        
+        self.mw = theano.function([x], mw_y, allow_input_downcast=True)
+        
+        self.params = []
+        mus = []
+        sigmas = []
+        for n in range(n_modes):
+            mu_w = theano.shared(
+                6 * 1e-3 * (np.random.rand(hidden_size, u_size) - 0.5)
+            )
+            mu_b = theano.shared(
+                np.zeros(u_size)
+            )
+            mu = mu_scaling * T.tanh(y2.dot(mu_w) + mu_b)
+            mus.append(mu)
+        
+            sigma_w = theano.shared(
+                (np.random.rand(hidden_size, u_size) - 0.5)
+            )
+            sigma_b = theano.shared(
+                -5.0 * np.ones(u_size)
+            )
+            sigma = mu_scaling * T.nnet.softplus((y1.dot(sigma_w) + sigma_b))
+            sigmas.append(sigma)
+            self.params.extend([mu_w, mu_b, sigma_w, sigma_b])
+
+        self.predict = theano.function([x], [mw_y] + mus + sigmas, allow_input_downcast=True)
+
+        u = T.fmatrix('actions')
+        mixture_probs = T.zeros((u.shape[0], n_modes))
+        for n in range(n_modes):
+            d = u - mus[n]
+            log_det = -0.5 * T.log(sigmas[n]).sum(axis=1)
+            exp_arg = -0.5 * (d * d / sigmas[n]).sum(axis=1)
+            mixture_probs = T.set_subtensor(
+                mixture_probs[:, n],
+                T.log(mw[:, n]) - np.log(2 * np.pi) + log_det + exp_arg
+            )
+        tot_log_prob = T.log(T.exp(mixture_probs).sum(axis=1, keepdims=True))
+        self.mp = theano.function([x, u], tot_log_prob, allow_input_downcast=True)
+        
+        # TODO add all params
+        # add loss for mu similarity?
+        self.params.extend([fc1_w, fc1_b, fc2_w, fc2_b, mu_w, mu_b, sigma_w, sigma_b])
+        self.adams = [Adam(lr=1e-5, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
+
+        v = T.fmatrix('value_targets')
+        r = T.fmatrix('return_targets')
+        beta = 1e-4
+        #loss = (-log_probability_of_u * (r - v) - beta * T.log(det)).sum()
+        loss = -(tot_log_prob * (r - v)).sum()
+        self.loss = theano.function([x, u, r, v], loss, allow_input_downcast=True)
+        self.gradients = theano.function(
+            [x, u, r, v],
+            T.grad(loss, wrt=self.params),
+            allow_input_downcast=True
+        )
+
+
 class Critic(A3C):
     
-    def __init__(self, x_size, u_size=2, hidden_size=100, adam_beta1=0.0, adam_beta2=0.999):
+    def __init__(self, x_size, u_size=2, hidden_size=200, adam_beta1=0.0, adam_beta2=0.999):
         x = T.fmatrix('state')
         
         fc1_w = theano.shared(
@@ -141,7 +228,7 @@ class Critic(A3C):
         self.predict = theano.function([x], v, allow_input_downcast=True)
         
         self.params = [fc1_w, fc1_b, fc2_w, fc2_b, v_w, v_b]
-        self.adams = [Adam(lr=1e-4, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
+        self.adams = [Adam(lr=1e-5, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
         
         r = T.fmatrix('return_targets')
         loss = ((r - v) ** 2).sum()
