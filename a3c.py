@@ -206,6 +206,88 @@ class ActorMM(A3C):
         return np.random.multivariate_normal(mean=mu, cov=sigma)
 
 
+class ActorFullCov(A3C):
+    
+    def __init__(self, x_size, u_size=2, hidden_size=200, mu_scaling=0.01, adam_beta1=0.0, adam_beta2=0.999):
+        x = T.fmatrix('state')
+        fc1_w = theano.shared(
+            2 / np.sqrt(x_size) * (np.random.rand(x_size, hidden_size) - 0.5)
+        )
+        fc1_b = theano.shared(
+            np.zeros(hidden_size)
+        )
+        y1 = T.nnet.relu(x.dot(fc1_w) + fc1_b)
+
+        fc2_w = theano.shared(
+            2 / np.sqrt(hidden_size) * (np.random.rand(hidden_size, hidden_size) - 0.5)
+        )
+        fc2_b = theano.shared(
+            np.zeros(hidden_size)
+        )
+        y2 = T.nnet.relu(y1.dot(fc2_w) + fc2_b)
+        
+        mu_w = theano.shared(
+            6 * 1e-3 * (np.random.rand(hidden_size, u_size) - 0.5)
+        )
+        mu_b = theano.shared(
+            np.zeros(u_size)
+        )
+        mu = mu_scaling * T.tanh(y2.dot(mu_w) + mu_b)
+        
+        l_diag_w = theano.shared(
+            (np.random.rand(hidden_size, u_size) - 0.5)
+        )
+        l_diag_b = theano.shared(
+            np.zeros(u_size)
+        )
+        l_diag = mu_scaling * T.nnet.softplus((y1.dot(l_diag_w) + l_diag_b))
+        cov_w = theano.shared(
+            (np.random.rand(hidden_size, 1) - 0.5)
+        )
+        cov_b = theano.shared(
+            np.zeros(1)
+        )
+        cov = mu_scaling * (y1.dot(cov_w) + cov_b)
+        
+        if u_size != 2:
+            raise NotImplementedError('u_size must be 2')
+        L = T.zeros((x.shape[0], 2, 2))
+        L = T.set_subtensor(L[:, [0, 1], [0, 1]], l_diag)
+        L = T.set_subtensor(L[:, 1, 0], cov.flatten())
+        sigma = T.batched_dot(L, L.swapaxes(1, 2))
+        det = (sigma[:, 0, 0] * sigma[:, 1, 1] - sigma[:, 0, 1] * sigma[:, 1, 0]).reshape((x.shape[0], 1, 1))
+        swap_diag = T.set_subtensor(sigma[:, 0, 0], sigma[:, 1, 1])
+        swap_diag = T.set_subtensor(swap_diag[:, 1, 1], sigma[:, 0, 0])
+        sigma_inv = 1 / det * T.set_subtensor(swap_diag[:, [0, 1], [1, 0]], -swap_diag[:, [0, 1], [1, 0]])
+        entropy = T.log(det)
+        
+        self.det = theano.function([x], det, allow_input_downcast=True)
+        self.sigma_inv = theano.function([x], sigma_inv, allow_input_downcast=True)
+        self.predict = theano.function([x], [mu, sigma], allow_input_downcast=True)
+        
+        u = T.fmatrix('actions')
+        d = (u - mu).reshape((x.shape[0], 1, 2))
+        log_probability_of_u = -0.5 * (
+            2 * T.log(2 * np.pi) +
+            T.log(det) +
+            T.batched_dot(d, T.batched_dot(sigma_inv, d.swapaxes(1, 2)))
+        ).reshape((x.shape[0], 1))
+        self.params = [fc1_w, fc1_b, fc2_w, fc2_b, mu_w, mu_b, l_diag_w, l_diag_b, cov_w, cov_b]
+        self.adams = [Adam(lr=1e-5, beta1=adam_beta1, beta2=adam_beta2) for _ in self.params]
+
+        v = T.fmatrix('value_targets')
+        r = T.fmatrix('return_targets')
+        beta = 1e-4
+        loss = (-log_probability_of_u * (r - v) - beta * T.log(det)).sum()
+        self.loss = theano.function([x, u, r, v], loss, allow_input_downcast=True)
+        self.log_probability_of_u = theano.function([x, u], log_probability_of_u, allow_input_downcast=True, on_unused_input='ignore')
+        self.gradients = theano.function(
+            [x, u, r, v],
+            T.grad(loss, wrt=self.params),
+            allow_input_downcast=True
+        )
+
+
 class Critic(A3C):
     
     def __init__(self, x_size, u_size=2, hidden_size=200, adam_beta1=0.0, adam_beta2=0.999):
