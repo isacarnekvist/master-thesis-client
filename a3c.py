@@ -100,7 +100,7 @@ class Actor(A3C):
 
         v = T.fmatrix('value_targets')
         r = T.fmatrix('return_targets')
-        beta = 1e-4
+        beta = 1e-3
         loss = (-log_probability_of_u * (r - v) - beta * T.log(det)).sum()
         self.loss = theano.function([x, u, r, v], loss, allow_input_downcast=True)
         self.gradients = theano.function(
