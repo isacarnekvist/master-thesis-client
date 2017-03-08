@@ -108,9 +108,10 @@ class Environment:
         circle_x = random(self.min_x + 2 * self.circle.radius, self.max_x - 2 * self.circle.radius)
         circle_y = random(self.min_y + 2 * self.circle.radius, self.max_y - 2 * self.circle.radius)
         self.circle = Circle(circle_x, circle_y)
-        while np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y]) < self.circle.radius:
-            self.circle.x = random(self.min_x, self.max_x)
-            self.circle.y = random(self.min_y, self.max_y)
+        while (np.linalg.norm([self.eef_x - self.circle.x, self.eef_y - self.circle.y]) < self.circle.radius and
+               np.linalg.norm([self.circle.x - self.goal_x, self.circle.y - self.goal_y]) > 0.01):
+            self.circle.x = random(self.min_x + 2 * self.circle.radius, self.max_x - 2 *  self.circle.radius)
+            self.circle.y = random(self.min_y + 2 * self.circle.radius, self.max_y - 2 * self.circle.radius)
 
     def get_state(self):
         if self.mode == 'reaching-fixed-goal':
@@ -189,7 +190,7 @@ class Environment:
                     np.exp(-200 * eef2goal ** 2) - 1
                 )
         
-        return self.get_state(), reward, state in [LOSE, WIN], None
+        return self.get_state(), reward, state in [LOSE, WIN], state
     
     def plot(self, ax=None):
         import matplotlib.pyplot as plt
