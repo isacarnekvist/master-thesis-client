@@ -158,11 +158,14 @@ class Environment:
             dy = self.max_dist * dy / dist
         self.eef_x += dx
         self.eef_y += dy
+        circle_start = np.array([self.circle.x, self.circle.y])
+        goal = np.array([self.goal_x, self.goal_y])
         if self.mode.startswith('pushing'):
             self.circle.interact(self.eef_x, self.eef_y)
+        circle_end = np.array([self.circle.x, self.circle.y])
 
         state = NEUTRAL
-        reward = -12
+        reward = -1
         if not self.min_x <= self.eef_x <= self.max_x:
             state = LOSE
         elif not self.min_y <= self.eef_y <= self.max_y:
@@ -182,9 +185,8 @@ class Environment:
             eef2goal = np.linalg.norm([self.goal_x - self.eef_x, self.goal_y - self.eef_y])
             if self.mode.startswith('pushing'):
                 reward = (
-                    (np.exp(-200 * eef2circle ** 2) - 1) +
-                    10 * (np.exp(-200 * circle2goal ** 2) - 1)
-                )
+                    np.linalg.norm(circle_start - goal) - np.linalg.norm(circle_end - goal)
+                ) / 0.01
             else:
                 reward = (
                     np.exp(-200 * eef2goal ** 2) - 1
@@ -192,7 +194,7 @@ class Environment:
         
         return self.get_state(), reward, state in [LOSE, WIN], state
     
-    def plot(self, ax=None):
+    def plot(self, ax=None, eef_color='b'):
         import matplotlib.pyplot as plt
         if ax is None:
             fig, ax = plt.subplots()
@@ -225,7 +227,7 @@ class Environment:
                 0.004,
                 color='w',
             ))
-        ax.plot(self.eef_x, self.eef_y, 'k+', markersize=10)
+        ax.plot(self.eef_x, self.eef_y, '+', color=eef_color, markersize=10)
         ax.set_xlim((self.min_x, self.max_x))
         ax.set_ylim((self.min_y, self.max_y))
 
