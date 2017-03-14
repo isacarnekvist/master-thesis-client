@@ -8,8 +8,8 @@ import logcolor
 import numpy as np
 from scipy.spatial.distance import euclidean
 
-from naf import NNet
 from arm_wrapper import Arm
+from ddpg import Actor, Critic
 from pose_estimator import cube_pose, lw
 from pyuarm.protocol import SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT
 
@@ -20,9 +20,9 @@ logger.setLevel(logging.INFO)
 
 
 def suspicious_transition(X):
-    ex1, ey1, cx1, cy1, gx1, gy1 = X['x']
-    ex2, ey2, cx2, cy2, gx2, gy2 = X['xp']
-    d = np.linalg.norm([cx1 - cx2, cy1 - cy2])
+    ex1, ey1, d1 = X['x']
+    ex2, ey2, d2 = X['xp']
+    d = abs(d1 - d2)
     return d > 0.03
 
 
@@ -30,14 +30,33 @@ def remove_command_threshold(dx, dy, max_axis_move):
     #dx += 0.0058 * np.sign(dx)
     #dy += 0.0058 * np.sign(dy)
     theta = np.arctan2(dy, dx)
-    k = np.linalg.norm([dx, dy]) / max_axis_move
     dx += 0.0058 * np.cos(theta)
     dy += 0.0058 * np.sin(theta)
     return dx, dy
 
 
 def create_state_vector(eef_x, eef_y, cube_x, cube_y, goal_x, goal_y):
-    return np.array([[eef_x, eef_y, cube_x, cube_y, goal_x, goal_y]])
+    cube = np.array([cube_x, cube_y])
+    goal = np.array([goal_x, goal_y])
+    eef = np.array([eef_x, eef_y])
+    d = cube - goal
+    d_norm = np.linalg.norm(d)
+    if d_norm > 0:
+        alpha = np.arctan2(d[1], d[0])
+        rot = np.array([[np.cos(alpha), np.sin(alpha)], [-np.sin(alpha), np.cos(alpha)]])
+        rel = np.dot(rot, eef - cube)
+        return np.array([
+            rel[0], # eef_x
+            rel[1],    # eef_y
+            d_norm  # circle to goal distance
+        ])
+    else:
+        # If circle is at goal, let eef be on x-axis
+        return np.array([
+            np.linalg.norm(eef - cube), # eef_x
+            0.0, # eef_y
+            0.0  # circle to goal distance
+        ])
 
 
 def random_in_range(a, b):
@@ -45,11 +64,13 @@ def random_in_range(a, b):
 
 
 def is_lose_pose(x, y, cube_x, cube_y):
-    if not (-0.12 <= x <= 0.12):
+    if not (-0.15 <= x <= 0.15):
         return True
-    if not (0.13 <= y <= 0.29):
+    if not (0.12 <= y <= 0.30):
         return True
-    if np.linalg.norm([cube_x, cube_y - 0.21]) >= 0.08:
+    if not (-0.08 <= cube_x <= 0.08):
+        return True
+    if not (0.15 <= cube_y <= 0.25):
         return True
     return False
 
@@ -78,26 +99,27 @@ def cube_pose_retry():
 
 
 def random_cube_start_goal():
-    theta = np.random.rand() * 2 * np.pi
-    target_rotation = np.random.rand() * 2 * np.pi
     return (
-        0.00 + 0.04 * np.cos(theta),
-        0.21 + 0.025 * np.sin(theta),
-        0.00 + 0.04 * np.cos(theta + np.pi),
-        0.21 + 0.025 * np.sin(theta + np.pi)
+        random_in_range(-0.06, 0.06),  # cube_x
+        random_in_range(0.17, 0.23),   # cube_y
+        random_in_range(0.00, 0.00),  # goal_x
+        random_in_range(0.21, 0.21),   # goal_y
     )
 
 
-def reward(x, y, cube_x, cube_y, goal_x, goal_y):
+def reward(x, y, cube_x, cube_y, cube_xp, cube_yp, goal_x, goal_y):
     eef = np.array([x, y])
     cube = np.array([cube_x, cube_y])
+    cubep = np.array([cube_xp, cube_yp])
     goal = np.array([goal_x, goal_y])
 
-    d_cube = euclidean(eef, cube)
-    d_goal = euclidean(cube, goal)
-    reward_cube = np.exp(-1000 * d_cube ** 2) - 1
-    reward_goal = 2 * (np.exp(-1000 * d_goal ** 2) - 1)
-    return reward_cube + reward_goal
+    d_change = np.linalg.norm(cube - goal) - np.linalg.norm(cubep - goal)
+    d_cube = euclidean(eef, cubep)
+    d_goal = euclidean(cubep, goal)
+    # reward_change = 100.0 * d_change # Too noisy!
+    reward_cube = 20 * np.exp(-100 * d_cube)
+    reward_goal = 20 * np.exp(-100 * d_goal)
+    return 1.0 * reward_cube + 1.0 * reward_goal
 
 
 class Client():
@@ -106,8 +128,15 @@ class Client():
         self.arm = Arm()
         self.session = requests.Session()
         self.max_axis_move = 0.012
-        # state is robot pose (2), cube relative pose (2), cube target pose (2)
-        self.nn = NNet(x_size=2 + 2 + 2, u_size=2, mu_scaling=self.max_axis_move)
+        # state is rotated and translated so that cube is in origin and
+        # goal is on negative x-axis
+        # state is eef relative to cube (2) + distance to cube to goal (1)
+        critic = Critic(3, 2) # not needed for inference
+        self.nn = Actor(3, 2, critic)
+        try:
+            self.nn.load_params('./ddpg/ddpg-actor-params.txt')
+        except:
+            logger.warning('Could not load parameters for network')
         sleep(2.0)
 
     def update_weights(self):
@@ -120,9 +149,9 @@ class Client():
         self.nn.q.set_weights([np.array(param) for param in params])
 
     def start(self):
-        for i in range(32):
+        for i in range(16):
             if i % 4:
-                self.do_one_trial(noise_factor=1.0)
+                self.do_one_trial(noise_factor=0.5 + 0.5 * np.random.rand())
             else:
                 trial = self.do_one_trial(noise_factor=0.0)
                 if trial is None:
@@ -134,30 +163,26 @@ class Client():
                 except requests.exceptions.ConnectionError:
                     logger.error('Server not online? Could not send test trial.')
 
-    def random_start_pose(self):
+    def random_start_pose(self, cube_x, cube_y):
         sleep(1.0)
         theta = np.random.rand() * 2 * np.pi
-        x, y, z = (
-            0.00 + 0.10 * np.cos(theta),
-            0.21 + 0.07 * np.sin(theta),
-            0.03
-        )
+        while True:
+            x, y, z = (
+                random_in_range(-0.10, 0.10),
+                random_in_range(0.17, 0.25),
+                0.03
+            )
+            if np.linalg.norm([x - cube_x, y - cube_y]) > 0.04:
+                break
         self.arm.move_to(x, y, z, velocity=0.5)
         sleep(2.0)
 
     def next_move(self, state_vector, noise_factor=1.0):
         # new controls plus noise
-        u_dx, u_dy = self.nn.mu.predict(state_vector)[0, :] + noise_factor * 0.01 * np.random.randn(2)
-        if np.random.rand() < 0.3 * noise_factor:
-            u_dx, u_dy = noise_factor * 0.01 * np.random.randn(2)
-
-        euclid = np.sqrt(u_dx ** 2 + u_dy ** 2)
-        if abs(u_dx) > self.max_axis_move:
-            u_dx = self.max_axis_move * np.sign(u_dx)
-        if abs(u_dy) > self.max_axis_move:
-            u_dy = self.max_axis_move * np.sign(u_dy)
-
-        return u_dx, u_dy
+        u = self.nn.u.predict(state_vector.reshape(1, 3))[0, :]
+        u_noisy = (1 - noise_factor) * u + noise_factor * 2 * (np.random.rand(2) - 0.5)
+        dx, dy = self.max_axis_move * u_noisy
+        return dx, dy
 
     def replace_cube(self, x, y):
         x_arm, y_arm, _ = self.arm.get_position()
@@ -180,11 +205,11 @@ class Client():
         self.arm.move_to(x, y, 0.08)         # raise arm above cube
         sleep(1.0)
 
-    def do_one_trial(self, noise_factor=1.0, max_movements=32):
+    def do_one_trial(self, noise_factor=1.0, max_movements=128):
         logger.debug('Setting random start and goal poses')
         cube_start_x, cube_start_y, goal_x, goal_y = random_cube_start_goal()
-        self.replace_cube(cube_start_x, goal_y)
-        self.random_start_pose()
+        self.replace_cube(cube_start_x, cube_start_y)
+        self.random_start_pose(cube_start_x, cube_start_y)
 
         experience = []
         self.update_weights()
@@ -210,13 +235,11 @@ class Client():
                 logger.info('Ignoring transition, large command/measure error')
                 continue
             state_prime = create_state_vector(xp, yp, cube_xp, cube_yp, goal_x, goal_y)
-            r = reward(xp, yp, cube_xp, cube_yp, goal_x, goal_y)
-            if is_lose_pose(xp, yp, cube_xp, cube_yp):
-                r = -4
+            r = reward(xp, yp, cube_x, cube_y, cube_xp, cube_yp, goal_x, goal_y)
             transition = {
-                'x': list(state[0, :]),
-                'xp': list(state_prime[0, :]),
-                'u': [dx, dy],
+                'x': list(state),
+                'xp': list(state_prime),
+                'u': [float(dx), float(dy)], # json complained
                 'r': r,
             }
             if suspicious_transition(transition):
@@ -224,12 +247,8 @@ class Client():
                 continue
             experience.append(transition)
             logger.info('Observed reward: {}'.format(r))
-            logger.debug('Cube at: {}'.format(state_prime[0, 2:4]))
             if is_lose_pose(xp, yp, cube_xp, cube_yp):
                 logger.info('Reached outside workspace')
-                break
-            if is_win_pose(xp, yp, cube_xp, cube_yp, goal_x, goal_y):
-                logger.info('Reached target pose!')
                 break
         self.send_experience(experience)
         return experience
