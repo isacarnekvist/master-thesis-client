@@ -102,8 +102,8 @@ def random_cube_start_goal():
     return (
         random_in_range(-0.06, 0.06),  # cube_x
         random_in_range(0.17, 0.23),   # cube_y
-        random_in_range(0.00, 0.00),  # goal_x
-        random_in_range(0.21, 0.21),   # goal_y
+        random_in_range(-0.06, 0.06),  # goal_x
+        random_in_range(0.17, 0.23),   # goal_y
     )
 
 
