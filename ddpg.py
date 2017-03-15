@@ -23,7 +23,7 @@ class Critic:
             Dense(input_dim=(x_size,), W_regularizer=l2(), activation='elu', output_dim=400, name='critic_fc1'),
             BatchNormalization(name='critic_bn2'),
             Dense(output_dim=300, W_regularizer=l2(), activation='elu', name='critic_fc2'),
-            Dense(output_dim=1, name='critic_q'),
+            Dense(output_dim=1, W_regularizer=l2(), name='critic_q'),
         ]
         self.q = Model(input=[x, u], output=self.build(x, u))
         self.q.compile(loss='mse', optimizer=Adam(1e-3))
