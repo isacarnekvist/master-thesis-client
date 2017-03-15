@@ -147,7 +147,7 @@ class Client():
 
     def start(self, demo=False):
         if demo:
-            self.do_one_trial(noise_factor=0.3, max_movements=4096)
+            self.do_one_trial(noise_factor=0.3, max_movements=4096, goal=(0.0, 0.21))
         else:
             for i in range(16):
                 if i % 4:
@@ -225,10 +225,11 @@ class Client():
         self.arm.move_to(x, y, 0.08, velocity=0.5)         # raise arm above cube
         sleep(1.0)
 
-    def do_one_trial(self, noise_factor=1.0, max_movements=32):
+    def do_one_trial(self, noise_factor=1.0, max_movements=32, goal=None):
         logger.debug('Setting random start and goal poses')
         cube_start_x, cube_start_y, goal_x, goal_y = random_cube_start_goal()
-        goal_x, goal_y = 0.0, 0.21
+        if goal:
+            goal_x, goal_y = goal
         self.replace_cube(cube_start_x, cube_start_y)
         self.random_start_pose(cube_start_x, cube_start_y)
 
