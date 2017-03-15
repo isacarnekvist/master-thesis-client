@@ -1,3 +1,5 @@
+import os
+import sys
 import json
 import logging
 import requests
@@ -10,7 +12,7 @@ from scipy.spatial.distance import euclidean
 
 from arm_wrapper import Arm
 from ddpg import Actor, Critic
-from pose_estimator import cube_pose, lw
+from rplidar_wrapper import LidarWrapper
 from pyuarm.protocol import SERVO_BOTTOM, SERVO_LEFT, SERVO_RIGHT
 
 
@@ -66,11 +68,11 @@ def random_in_range(a, b):
 def is_lose_pose(x, y, cube_x, cube_y):
     if not (-0.15 <= x <= 0.15):
         return True
-    if not (0.12 <= y <= 0.30):
+    if not (0.11 <= y <= 0.32):
         return True
-    if not (-0.08 <= cube_x <= 0.08):
+    if not (-0.11 <= cube_x <= 0.11):
         return True
-    if not (0.15 <= cube_y <= 0.25):
+    if not (0.13 <= cube_y <= 0.26):
         return True
     return False
 
@@ -90,12 +92,7 @@ def random_pose():
 
 
 def cube_pose_retry():
-    for i in range(10):
-        res = cube_pose()
-        if res is None:
-            sleep(1.0)
-        else:
-            return res
+    return lw.cube_pose, lw.scans
 
 
 def random_cube_start_goal():
@@ -116,10 +113,10 @@ def reward(x, y, cube_x, cube_y, cube_xp, cube_yp, goal_x, goal_y):
     d_change = np.linalg.norm(cube - goal) - np.linalg.norm(cubep - goal)
     d_cube = euclidean(eef, cubep)
     d_goal = euclidean(cubep, goal)
-    # reward_change = 100.0 * d_change # Too noisy!
-    reward_cube = 20 * np.exp(-100 * d_cube)
-    reward_goal = 20 * np.exp(-100 * d_goal)
-    return 1.0 * reward_cube + 1.0 * reward_goal
+    reward_change = 1000.0 * d_change # Too noisy!?
+    reward_goal = 1000.0 * np.exp(-500 * d_goal)
+    reward_cube = 100.0 * np.exp(-200 * d_cube)
+    return reward_change + reward_goal + reward_cube
 
 
 class Client():
@@ -148,20 +145,23 @@ class Client():
             return
         self.nn.q.set_weights([np.array(param) for param in params])
 
-    def start(self):
-        for i in range(16):
-            if i % 4:
-                self.do_one_trial(noise_factor=0.5 + 0.5 * np.random.rand())
-            else:
-                trial = self.do_one_trial(noise_factor=0.0)
-                if trial is None:
-                    continue
-                try:
-                    headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
-                    r = self.session.put('http://beorn:5000/put_test_trial', data=json.dumps(trial), headers=headers)
-                    logger.debug('Sent test trial {}'.format(r))
-                except requests.exceptions.ConnectionError:
-                    logger.error('Server not online? Could not send test trial.')
+    def start(self, demo=False):
+        if demo:
+            self.do_one_trial(noise_factor=0.3, max_movements=4096)
+        else:
+            for i in range(16):
+                if i % 4:
+                    self.do_one_trial(noise_factor=0.5 + 0.5 * np.random.rand())
+                else:
+                    trial = self.do_one_trial(noise_factor=0.0)
+                    if trial is None:
+                        continue
+                    try:
+                        headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+                        r = self.session.put('http://beorn:5000/put_test_trial', data=json.dumps(trial), headers=headers)
+                        logger.debug('Sent test trial {}'.format(r))
+                    except requests.exceptions.ConnectionError:
+                        logger.error('Server not online? Could not send test trial.')
 
     def random_start_pose(self, cube_x, cube_y):
         sleep(1.0)
@@ -177,37 +177,58 @@ class Client():
         self.arm.move_to(x, y, z, velocity=0.5)
         sleep(2.0)
 
-    def next_move(self, state_vector, noise_factor=1.0):
+    def next_move(self, eef_x, eef_y, cube_x, cube_y, goal_x, goal_y, state_vector, noise_factor=1.0):
         # new controls plus noise
         u = self.nn.u.predict(state_vector.reshape(1, 3))[0, :]
         u_noisy = (1 - noise_factor) * u + noise_factor * 2 * (np.random.rand(2) - 0.5)
-        dx, dy = self.max_axis_move * u_noisy
+
+        eef = np.array([eef_x, eef_y])
+        cube = np.array([cube_x, cube_y])
+        goal = np.array([goal_x, goal_y])
+
+        d = cube - goal
+        d_norm_before = np.linalg.norm(d)
+        if d_norm_before > 0:
+            alpha = np.arctan2(d[1], d[0])
+            rot = np.array([[np.cos(alpha), -np.sin(alpha)], [np.sin(alpha), np.cos(alpha)]])
+            rel = np.dot(rot, u_noisy)
+        else:
+            g2e = eef - goal
+            alpha = np.arctan2(g2e[1], g2e[0])
+            rot = np.array([[np.cos(alpha), -np.sin(alpha)], [np.sin(alpha), np.cos(alpha)]])
+            rel = np.dot(rot, u)
+
+        dx, dy = self.max_axis_move * rel
         return dx, dy
 
     def replace_cube(self, x, y):
         x_arm, y_arm, _ = self.arm.get_position()
         sleep(1.0)
-        self.arm.move_to(x_arm, y_arm, 0.08) # raise arm first
-        x_now, y_now, _ = cube_pose_retry()
+        self.arm.move_to(x_arm, y_arm, 0.08, velocity=0.5) # raise arm first
+        (x_now, y_now), _ = cube_pose_retry()
         sleep(1.0)
-        self.arm.move_to(x_now, y_now, 0.08)               # move to above cube
-        sleep(1.0)
-        x_now, y_now, _ = cube_pose_retry()
-        self.arm.move_to(x_now, y_now, 0.032)              # lower onto cube
-        self.arm.set_pump(1)
-        sleep(1.0)
-        self.arm.move_to(x, y, 0.08)                       # lift
-        sleep(1.0)
+        while True:
+            self.arm.move_to(x_now, y_now, 0.08)           # move to above cube
+            sleep(1.0)
+            (x_now, y_now), _ = cube_pose_retry()
+            self.arm.move_to(x_now, y_now, 0.032)          # lower onto cube
+            self.arm.set_pump(1)
+            sleep(1.0)
+            self.arm.move_to(x, y, 0.08, velocity=0.5)     # lift
+            sleep(1.0)
+            if not lw.cube_visible:
+                break
         self.arm.move_to(x, y, 0.03, velocity=0.5)         # replace
         sleep(3.0)
         self.arm.set_pump(0)
         sleep(1.0)
-        self.arm.move_to(x, y, 0.08)         # raise arm above cube
+        self.arm.move_to(x, y, 0.08, velocity=0.5)         # raise arm above cube
         sleep(1.0)
 
-    def do_one_trial(self, noise_factor=1.0, max_movements=128):
+    def do_one_trial(self, noise_factor=1.0, max_movements=32):
         logger.debug('Setting random start and goal poses')
         cube_start_x, cube_start_y, goal_x, goal_y = random_cube_start_goal()
+        goal_x, goal_y = 0.0, 0.21
         self.replace_cube(cube_start_x, cube_start_y)
         self.random_start_pose(cube_start_x, cube_start_y)
 
@@ -216,9 +237,9 @@ class Client():
         logger.info('New goal at x: {}, y: {}'.format(goal_x, goal_y))
         for i in range(max_movements):
             x, y, _ = self.arm.get_position()
-            cube_x, cube_y, _ = cube_pose_retry()
+            (cube_x, cube_y), scans = cube_pose_retry()
             state = create_state_vector(x, y, cube_x, cube_y, goal_x, goal_y)
-            dx, dy = self.next_move(state, noise_factor=noise_factor)
+            dx, dy = self.next_move(x, y, cube_x, cube_y, goal_x, goal_y, state, noise_factor=noise_factor)
             dx_fixed, dy_fixed = remove_command_threshold(dx, dy, self.max_axis_move)
             logger.debug('Sending command: {:.3f}, {:.3f}. Corrected to: {:.3f} {:.3f}'.format(dx, dy, dx_fixed, dy_fixed))
             if self.arm._arm.is_connected():
@@ -227,9 +248,9 @@ class Client():
                 self.arm.disconnect()
                 self.arm.stop()
                 exit(-1)
-            sleep(0.2)
+            sleep(0.4)
             xp, yp, _ = self.arm.get_position()
-            cube_xp, cube_yp, _ = cube_pose_retry()
+            (cube_xp, cube_yp), scans_p = cube_pose_retry()
             error_euclid = euclidean([xp - x, yp - y], [dx, dy])
             if error_euclid > 0.01:
                 logger.info('Ignoring transition, large command/measure error')
@@ -239,6 +260,11 @@ class Client():
             transition = {
                 'x': list(state),
                 'xp': list(state_prime),
+                'real_x': [x, y, cube_x, cube_y, goal_x, goal_y],
+                'real_xp': [xp, yp, cube_xp, cube_yp, goal_x, goal_y],
+                'scans': list(scans),
+                'scans_p': list(scans_p),
+                'robot_id': os.environ['USER'],
                 'u': [float(dx), float(dy)], # json complained
                 'r': r,
             }
@@ -267,8 +293,10 @@ class Client():
         
 
 c = Client()
+lw = LidarWrapper()
+sleep(2.0)
 try:
-    c.start()
+    c.start(demo=('--demo' in sys.argv))
 except KeyboardInterrupt:
     c.stop()
     exit(0)

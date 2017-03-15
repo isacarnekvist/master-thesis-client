@@ -7,7 +7,7 @@ from numpy.linalg import norm
 from numpy import sin, cos, arccos, dot
 from skimage.transform import hough_line, hough_line_peaks
 
-from rplidar_wrapper import LidarWrapper
+#from rplidar_wrapper import LidarWrapper
 
 
 A, b, Ar = None, None, None
@@ -17,7 +17,7 @@ try:
 except:
     print('No transform found, using lidar frame')
         
-lw = LidarWrapper()
+#lw = LidarWrapper()
 
 def first_quadrant(theta):
     theta -= np.pi
@@ -25,10 +25,12 @@ def first_quadrant(theta):
         theta += np.pi / 2
     return theta
 
-def cube_pose():
+def cube_pose(scan_dict=None):
+    if scan_dict is None:
+        scan_dict = lw.scans.items()
     points = [
         (dist * np.cos(np.deg2rad(angle)), dist * np.sin(np.deg2rad(angle)))
-        for angle, dist in sorted(lw.scans.items(), key=lambda x: x[0])
+        for angle, dist in sorted(scan_dict.items(), key=lambda x: x[0])
     ]
     if not points:
         print('no points from lidar')
@@ -65,17 +67,25 @@ def cube_pose():
     if A is not None:
         ax, ay = (np.dot(np.array([[x, y]]), A) + np.array(b))[0, :]
         rx, ry = np.dot(np.array([[np.cos(theta), np.sin(theta)]]), Ar)[0, :]
-        return ax, ay, first_quadrant(np.arctan2(ry, rx))
+        #return ax, ay, first_quadrant(np.arctan2(ry, rx))
+        return ax, ay, points
     else:
-        return x, y, theta
+        #return x, y, theta
+        return x, y, points
 
 
 if __name__ == '__main__':
+    sleep(1.0)
+    n_estimates = 10
+    m = np.zeros(2)
+    alpha = 0.7
     while True:
-        sleep(1.0)
+        sleep(0.15)
         res = cube_pose()
         if res is None:
             continue
         else:
             x, y, theta = res
-        print(x, y, np.cos(4 * theta), np.sin(4 * theta))
+            m = alpha * m + (1 - alpha) * np.array([x, y])
+        #print(x, y, np.cos(4 * theta), np.sin(4 * theta))
+        print(m)
