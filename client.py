@@ -32,8 +32,8 @@ def remove_command_threshold(dx, dy, max_axis_move):
     #dx += 0.0058 * np.sign(dx)
     #dy += 0.0058 * np.sign(dy)
     theta = np.arctan2(dy, dx)
-    dx += 0.0058 * np.cos(theta)
-    dy += 0.0058 * np.sin(theta)
+    dx += 0.01 * np.cos(theta)
+    dy += 0.01 * np.sin(theta)
     return dx, dy
 
 
@@ -147,11 +147,12 @@ class Client():
 
     def start(self, demo=False):
         if demo:
-            self.do_one_trial(noise_factor=0.3, max_movements=4096, goal=(0.0, 0.21))
+            self.do_one_trial(noise_factor=0.1, max_movements=4096, goal=(0.0, 0.21))
         else:
             for i in range(16):
-                if i % 4:
-                    self.do_one_trial(noise_factor=0.5 + 0.5 * np.random.rand())
+                if True:
+                    #self.do_one_trial(noise_factor=0.5 + 0.5 * np.random.rand())
+                    self.do_one_trial(noise_factor=0.1, max_movements=128)
                 else:
                     trial = self.do_one_trial(noise_factor=0.0)
                     if trial is None:
@@ -215,7 +216,7 @@ class Client():
             self.arm.set_pump(1)
             sleep(1.0)
             self.arm.move_to(x, y, 0.08, velocity=0.5)     # lift
-            sleep(1.0)
+            sleep(2.0)
             if not lw.cube_visible:
                 break
         self.arm.move_to(x, y, 0.03, velocity=0.5)         # replace
@@ -234,7 +235,7 @@ class Client():
         self.random_start_pose(cube_start_x, cube_start_y)
 
         experience = []
-        self.update_weights()
+        #self.update_weights()
         logger.info('New goal at x: {}, y: {}'.format(goal_x, goal_y))
         for i in range(max_movements):
             x, y, _ = self.arm.get_position()
